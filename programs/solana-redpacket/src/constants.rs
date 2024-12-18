@@ -11,3 +11,9 @@ pub const RED_PACKET_USE_NATIVE_TOKEN: u8 = 0;
 
 #[constant]
 pub const RED_PACKET_USE_CUSTOM_TOKEN: u8 = 1;
+
+#[constant]
+pub const RED_PACKET_WITHDRAW_STATUS_UNCLAIMED: u8 = 0;
+
+#[constant]
+pub const RED_PACKET_WITHDRAW_STATUS_CLAIMED: u8 = 1;

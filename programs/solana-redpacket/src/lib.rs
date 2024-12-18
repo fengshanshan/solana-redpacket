@@ -120,7 +120,7 @@ pub mod redpacket {
         let red_packet = &mut ctx.accounts.red_packet;
         require!(red_packet.red_packet_id == red_packet_id, CustomError::InvalidRedPacketId);
         let current_time = Clock::get()?.unix_timestamp;
-        
+       
         require!(current_time < red_packet.expiry.try_into().unwrap(), CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.claimer.key()), CustomError::RedPacketClaimed);
@@ -147,23 +147,6 @@ pub mod redpacket {
         red_packet.claimed_amount += claim_amount;
         msg!("red_packet.total_amount: {}", red_packet.claimed_amount);
 
-        Ok(())
-    }
-
-    pub fn withdraw_with_native_token(ctx: Context<WithdrawWithNativeToken>, red_packet_id: u64) -> Result<()> {
-        let red_packet = &mut ctx.accounts.red_packet;
-        require!(red_packet.red_packet_id == red_packet_id, CustomError::InvalidRedPacketId);
-        let current_time = Clock::get()?.unix_timestamp;
-        require!(current_time >= red_packet.expiry.try_into().unwrap(), CustomError::RedPacketNotExpired);
-        require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
-
-        let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
-        msg!("Remaining amount to withdraw: {}, total amount: {}, claimed amount: {}", remaining_amount, red_packet.total_amount, red_packet.claimed_amount);
-        
-        // Transfer remaining SOL back to the creator
-        **red_packet.to_account_info().try_borrow_mut_lamports()? -= remaining_amount;
-        **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? += remaining_amount;
-        red_packet.withdraw_status = 1;
         Ok(())
     }
 
@@ -196,6 +179,24 @@ pub mod redpacket {
 
         Ok(())
     }
+
+    pub fn withdraw_with_native_token(ctx: Context<WithdrawWithNativeToken>, red_packet_id: u64) -> Result<()> {
+        let red_packet = &mut ctx.accounts.red_packet;
+        require!(red_packet.red_packet_id == red_packet_id, CustomError::InvalidRedPacketId);
+        let current_time = Clock::get()?.unix_timestamp;
+        require!(current_time >= red_packet.expiry.try_into().unwrap(), CustomError::RedPacketNotExpired);
+        require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
+
+        let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
+        msg!("Remaining amount to withdraw: {}, total amount: {}, claimed amount: {}", remaining_amount, red_packet.total_amount, red_packet.claimed_amount);
+        
+        // Transfer remaining SOL back to the creator
+        **red_packet.to_account_info().try_borrow_mut_lamports()? -= remaining_amount;
+        **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? += remaining_amount;
+        red_packet.withdraw_status = 1;
+        Ok(())
+    }
+
 }
 
 
@@ -405,4 +406,3 @@ pub enum CustomError {
     #[msg("You are not authorized to perform this action.")]
     Unauthorized,
 }
-
