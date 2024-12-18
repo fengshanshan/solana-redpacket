@@ -152,6 +152,7 @@ pub mod redpacket {
     pub fn withdraw_with_spl_token(ctx: Context<RedPacketWithSPLToken>, red_packet_id: u64) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
         require!(red_packet.red_packet_id == red_packet_id, CustomError::InvalidRedPacketId);
+        require!(red_packet.withdraw_status == constants::RED_PACKET_WITHDRAW_STATUS_NOT_WITHDRAW, CustomError::RedPacketWithdrawn);
         let current_time = Clock::get()?.unix_timestamp;
         require!(current_time >= red_packet.expiry.try_into().unwrap(), CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
@@ -181,6 +182,7 @@ pub mod redpacket {
     pub fn withdraw_with_native_token(ctx: Context<RedPacketWithNativeToken>, red_packet_id: u64) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
         require!(red_packet.red_packet_id == red_packet_id, CustomError::InvalidRedPacketId);
+        require!(red_packet.withdraw_status == constants::RED_PACKET_WITHDRAW_STATUS_NOT_WITHDRAW, CustomError::RedPacketWithdrawn);
         let current_time = Clock::get()?.unix_timestamp;
         require!(current_time >= red_packet.expiry.try_into().unwrap(), CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
@@ -347,4 +349,6 @@ pub enum CustomError {
     RedPacketAllClaimed,
     #[msg("You are not authorized to perform this action.")]
     Unauthorized,
+    #[msg("The red packet has been withdrawn.")]
+    RedPacketWithdrawn,
 }
