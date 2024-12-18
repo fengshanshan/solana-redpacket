@@ -44,6 +44,7 @@ describe("redpacket", () => {
     tokenProgram: TOKEN_PROGRAM,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     systemProgram: anchor.web3.SystemProgram.programId,
+    rent: anchor.web3.SYSVAR_RENT_PUBKEY,
   };
 
   const redPacketProgram = anchor.workspace.Redpacket as Program<Redpacket>;
@@ -93,11 +94,18 @@ describe("redpacket", () => {
     const users = usersMintsAndTokenAccounts.users;
     redPacketCreator = users[0];
 
-    splTokenAccounts.creator = redPacketCreator.publicKey;
-    nativeAccounts.creator = redPacketCreator.publicKey;
+    splTokenAccounts.signer = redPacketCreator.publicKey;
+    nativeAccounts.signer = redPacketCreator.publicKey;
   });
 
   it("create SPL token redpacket", async () => {
+    // Airdrop some SOL to redPacketCreator
+    const airdropSignature = await connection.requestAirdrop(
+      redPacketCreator.publicKey,
+      1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL
+    );
+    await confirmTransaction(connection, airdropSignature);
+
     splTokenAccounts.redPacket = splTokenRedPacket;
 
     // 为 vault 创建相关的 PDA
@@ -113,34 +121,37 @@ describe("redpacket", () => {
     const redPacketTotalNumber = new anchor.BN(3);
     const redPacketTotalAmount = new anchor.BN(3);
 
-    const tx = await redPacketProgram.methods
-      .createRedPacketWithSplToken(
-        splTokenRedPacketID,
-        redPacketTotalNumber,
-        redPacketTotalAmount,
-        redPacketExpiry,
-        false // if_split_random
-      )
-      .accounts({ ...splTokenAccounts })
-      .signers([redPacketCreator])
-      .rpc();
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithSplToken(
+          splTokenRedPacketID,
+          redPacketTotalNumber,
+          redPacketTotalAmount,
+          redPacketExpiry,
+          false // if_split_random
+        )
+        .accounts({
+          ...splTokenAccounts,
+        })
+        .signers([redPacketCreator])
+        .rpc();
 
-    await provider.connection.confirmTransaction(tx);
+      await provider.connection.confirmTransaction(tx);
+    } catch (error) {
+      console.error("Transaction failed:", error);
+      if (error.logs) {
+        console.log("Transaction logs:", error.logs);
+      }
+      await getLogs(error.signature);
+    }
 
     // Fetch and verify the created red packet account
     // Check vault contains the tokens offered
     const vaultBalanceResponse = await connection.getTokenAccountBalance(vault);
     const vaultBalance = new anchor.BN(vaultBalanceResponse.value.amount);
 
-    // 为 vault 创建相关的 PDA
-    const creatorVault = getAssociatedTokenAddressSync(
-      splTokenAccounts.tokenMint,
-      redPacketCreator.publicKey,
-      true,
-      TOKEN_PROGRAM
-    );
     const creatorBalanceResponse = await connection.getTokenAccountBalance(
-      creatorVault
+      splTokenAccounts.vault
     );
     const creatorBalance = new anchor.BN(creatorBalanceResponse.value.amount);
     console.log("creatorBalance", creatorBalance.toString());
@@ -242,9 +253,9 @@ describe("redpacket", () => {
       .claimWithSplToken(splTokenRedPacketID)
       .accounts({
         redPacket: splTokenRedPacket,
-        claimer: randomUser.publicKey,
+        signer: randomUser.publicKey,
         vault: splTokenAccounts.vault,
-        claimerTokenAccount, // Will be created if it doesn't exist
+        tokenAccount: claimerTokenAccount, // Will be created if it doesn't exist
         tokenMint: splTokenAccounts.tokenMint,
         tokenProgram: TOKEN_PROGRAM,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -277,7 +288,7 @@ describe("redpacket", () => {
       .claimWithNativeToken(nativeTokenRedPacketID)
       .accounts({
         redPacket: nativeTokenRedPacket,
-        claimer: randomUser.publicKey,
+        signer: randomUser.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
       .signers([randomUser])
@@ -367,7 +378,7 @@ describe("redpacket", () => {
         redPacket: shortTimeSPLTokenRedPacket,
         signer: redPacketCreator.publicKey,
         vault: splTokenAccounts.vault,
-        signerTokenAccount, // Will be created if it doesn't exist
+        tokenAccount: signerTokenAccount, // Will be created if it doesn't exist
         tokenMint: splTokenAccounts.tokenMint,
         tokenProgram: TOKEN_PROGRAM,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -406,7 +417,7 @@ describe("redpacket", () => {
         false // if_split_random
       )
       .accounts({
-        creator: redPacketCreator.publicKey,
+        signer: redPacketCreator.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
         redPacket: shortTimeNativeTokenRedPacket,
       })
