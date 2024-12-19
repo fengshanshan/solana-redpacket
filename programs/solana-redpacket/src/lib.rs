@@ -83,14 +83,7 @@ pub mod redpacket {
         require!(current_time < red_packet.expiry.try_into().unwrap(), CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
-        let claim_amount: u64;
-       
-       if red_packet.if_spilt_random == constants::RED_PACKET_SPILT_EQUAL {
-            claim_amount = red_packet.total_amount / red_packet.total_number;
-       } else {
-            // todo spilt random
-            unimplemented!();
-       } 
+        let claim_amount = calculate_claim_amount(red_packet);
 
         // check if the claim amount is valid
         require!(red_packet.claimed_amount + claim_amount <= red_packet.total_amount, CustomError::InvalidClaimAmount);
@@ -125,14 +118,8 @@ pub mod redpacket {
         require!(current_time < red_packet.expiry.try_into().unwrap(), CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
-        let claim_amount: u64;
-       
-        if red_packet.if_spilt_random == constants::RED_PACKET_SPILT_EQUAL {
-            claim_amount = red_packet.total_amount / red_packet.total_number;
-        } else {
-            // todo spilt random
-            unimplemented!();
-        } 
+        let claim_amount = calculate_claim_amount(red_packet);
+        
         // check if the claim amount is valid
         require!(red_packet.claimed_amount + claim_amount <= red_packet.total_amount, CustomError::InvalidClaimAmount);
        
@@ -321,6 +308,25 @@ pub fn initialize_red_packet(
         withdraw_status: 0,
     });
 }
+
+fn calculate_claim_amount(red_packet: &mut RedPacket) -> u64 {
+    let claim_amount: u64;
+
+    let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
+    if red_packet.total_number - red_packet.claimed_number == 1 {
+        return remaining_amount;
+    }
+
+    if red_packet.if_spilt_random == constants::RED_PACKET_SPILT_EQUAL {
+        claim_amount = red_packet.total_amount / red_packet.total_number;   
+    } else {
+        // todo spilt random
+        //let random_amount = random(0, remaining_amount);
+        claim_amount = 0;
+    } 
+    return claim_amount;
+}
+
 #[error_code]
 pub enum CustomError {
     #[msg("Invalid red packet id.")]
