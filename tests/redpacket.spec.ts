@@ -134,6 +134,19 @@ describe("redpacket", () => {
     );
     splTokenAccounts.vault = vault;
 
+    console.log(
+      "token account address",
+      splTokenAccounts.tokenAccount.toString()
+    );
+
+    const creatorTokenBalanceBefore = await connection.getTokenAccountBalance(
+      splTokenAccounts.tokenAccount
+    );
+    console.log(
+      "In test case token account  balance",
+      creatorTokenBalanceBefore.value.amount
+    );
+
     const redPacketExpiry = new anchor.BN(Date.now() + 1000 * 60 * 60 * 24);
     const redPacketTotalNumber = new anchor.BN(3);
     const redPacketTotalAmount = new anchor.BN(3);
