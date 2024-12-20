@@ -1,12 +1,19 @@
 # Implement red packet on solana
 original code:
 https://github.com/DimensionDev/RedPacket/
+## Get Started
+```
+anchor build
 
-## todo
+anchor test
+```
+** right now, withdraw test pass will fail, because time check. Maybe need to use bank run test.
 
-- [ ] random amount for each user
+## Todo List
+
+- [ ] random amount red packet
 - [ ] red packet ID design
-- [ ] add more tests
+- [ ] bank run test and add more test cases
 - [ ] NFT red packet
 
 

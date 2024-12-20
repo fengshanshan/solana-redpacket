@@ -126,12 +126,10 @@ pub mod redpacket {
         // Transfer SOL using native transfer
         **red_packet.to_account_info().try_borrow_mut_lamports()? -= claim_amount;
         **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? += claim_amount;
-        
-        
+               
         red_packet.claimed_users.push(ctx.accounts.signer.key());
         red_packet.claimed_number += 1;
         red_packet.claimed_amount += claim_amount;
-        msg!("red_packet.total_amount: {}", red_packet.claimed_amount);
 
         Ok(())
     }
