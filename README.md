@@ -7,7 +7,7 @@ anchor build
 
 anchor test
 ```
-** right now, withdraw test pass will fail, because time check. Maybe need to use bank run test.
+** right now, withdraw test pass will fail, because time check. Maybe need to use bank rewrite withdraw test.
 
 ## Todo List
 - [ ] red packet ID design (frontend generate(maybe failed) / rust code generate(storage cost, need to notify frontend, redPacket id))
