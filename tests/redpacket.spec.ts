@@ -44,35 +44,34 @@ describe("redpacket", () => {
     tokenProgram: TOKEN_PROGRAM,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     systemProgram: anchor.web3.SystemProgram.programId,
-    rent: anchor.web3.SYSVAR_RENT_PUBKEY,
   };
 
   const redPacketProgram = anchor.workspace.Redpacket as Program<Redpacket>;
 
-  // First create red packets
-  const splTokenRedPacketID = new anchor.BN(1);
-  const splTokenRedPacket = PublicKey.findProgramAddressSync(
-    [splTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-    redPacketProgram.programId
-  )[0];
+  // // First create red packets
+  // const splTokenRedPacketID = new anchor.BN(1);
+  // const splTokenRedPacket = PublicKey.findProgramAddressSync(
+  //   [redPacketCreator.publicKey, ],
+  //   redPacketProgram.programId
+  // )[0];
 
-  const nativeTokenRedPacketID = new anchor.BN(2);
-  const nativeTokenRedPacket = PublicKey.findProgramAddressSync(
-    [nativeTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-    redPacketProgram.programId
-  )[0];
+  // const nativeTokenRedPacketID = new anchor.BN(2);
+  // const nativeTokenRedPacket = PublicKey.findProgramAddressSync(
+  //   [nativeTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
+  //   redPacketProgram.programId
+  // )[0];
 
-  const shortTimeSPLTokenRedPacketID = new anchor.BN(3);
-  const shortTimeSPLTokenRedPacket = PublicKey.findProgramAddressSync(
-    [shortTimeSPLTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-    redPacketProgram.programId
-  )[0];
+  // const shortTimeSPLTokenRedPacketID = new anchor.BN(3);
+  // const shortTimeSPLTokenRedPacket = PublicKey.findProgramAddressSync(
+  //   [shortTimeSPLTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
+  //   redPacketProgram.programId
+  // )[0];
 
-  const shortTimeNativeTokenRedPacketID = new anchor.BN(4);
-  const shortTimeNativeTokenRedPacket = PublicKey.findProgramAddressSync(
-    [shortTimeNativeTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-    redPacketProgram.programId
-  )[0];
+  // const shortTimeNativeTokenRedPacketID = new anchor.BN(4);
+  // const shortTimeNativeTokenRedPacket = PublicKey.findProgramAddressSync(
+  //   [shortTimeNativeTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
+  //   redPacketProgram.programId
+  // )[0];
 
   // Add beforeAll if you need any setup before all tests
   before(async () => {
@@ -90,17 +89,6 @@ describe("redpacket", () => {
 
     splTokenAccounts.tokenMint = tokenMint.publicKey;
     splTokenAccounts.tokenAccount = tokenAccounts[0][0];
-
-    // for devnet
-    // const tokenAccount = new PublicKey(
-    //   "DjeCRsXXYUsVjRXJjRD8EojooCRKyDHRoZE5y6RKA36o"
-    // );
-    // const tokenMint = new PublicKey(
-    //   "mnt8ACz1pLgiWUJ3YKWcChAwLNTpaztg3SoTSoTGCDU"
-    // );
-    // splTokenAccounts.tokenMint = tokenMint;
-    // splTokenAccounts.tokenAccount = tokenAccount;
-    //redPacketCreator = signer;
 
     const users = usersMintsAndTokenAccounts.users;
     redPacketCreator = users[0];
@@ -123,7 +111,23 @@ describe("redpacket", () => {
     nativeAccounts.signer = redPacketCreator.publicKey;
   });
 
-  it("create SPL token redpacket", async () => {
+  it.only("create SPL token redpacket", async () => {
+    const createTime = new anchor.BN(Date.now());
+
+    console.log(
+      "createTime Array Like",
+      createTime.toArrayLike(Buffer, "le", 8)
+    );
+
+    const splTokenRedPacket = PublicKey.findProgramAddressSync(
+      [
+        redPacketCreator.publicKey.toBytes(),
+        createTime.toArrayLike(Buffer, "le", 8),
+      ],
+      redPacketProgram.programId
+    )[0];
+    console.log("Generated PDA:", splTokenRedPacket.toString());
+
     splTokenAccounts.redPacket = splTokenRedPacket;
     // 为 vault 创建相关的 PDA
     const vault = getAssociatedTokenAddressSync(
@@ -146,21 +150,28 @@ describe("redpacket", () => {
       "In test case token account  balance",
       creatorTokenBalanceBefore.value.amount
     );
+    splTokenAccounts.signer = redPacketCreator.publicKey;
 
-    const redPacketExpiry = new anchor.BN(Date.now() + 1000 * 60 * 60 * 24);
     const redPacketTotalNumber = new anchor.BN(3);
     const redPacketTotalAmount = new anchor.BN(3);
+    const redPacketDuration = new anchor.BN(7 * 60 * 60 * 24);
 
+    console.log("Debug values:");
+    console.log("Creator pubkey:", redPacketCreator.publicKey.toString());
+    console.log("Create time:", createTime.toString());
+    console.log("Expected PDA:", splTokenRedPacket.toString());
     try {
       const tx = await redPacketProgram.methods
         .createRedPacketWithSplToken(
-          splTokenRedPacketID,
           redPacketTotalNumber,
           redPacketTotalAmount,
-          redPacketExpiry,
-          false // if_split_random
+          createTime,
+          redPacketDuration,
+          false
         )
         .accounts({
+          signer: redPacketCreator.publicKey, // Make sure this matches the key used in PDA derivation
+          redPacket: splTokenRedPacket,
           ...splTokenAccounts,
         })
         .signers([redPacketCreator])
@@ -203,8 +214,11 @@ describe("redpacket", () => {
     expect(redPacketAccount.totalAmount.toString()).equal(
       redPacketTotalAmount.toString()
     );
-    expect(redPacketAccount.expiry.toString()).equal(
-      redPacketExpiry.toString()
+    expect(redPacketAccount.createTime.toString()).equal(
+      redPacketAccount.createTime.toString()
+    );
+    expect(redPacketAccount.duration.toString()).equal(
+      redPacketAccount.duration.toString()
     );
     expect(redPacketAccount.tokenType).equal(1);
     expect(redPacketAccount.ifSpiltRandom).equal(false);
@@ -223,7 +237,6 @@ describe("redpacket", () => {
     const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
     const tx = await redPacketProgram.methods
       .createRedPacketWithNativeToken(
-        nativeTokenRedPacketID,
         redPacketTotalNumber,
         redPacketTotalAmount,
         redPacketExpiry,
@@ -266,7 +279,7 @@ describe("redpacket", () => {
     );
 
     const tx = await redPacketProgram.methods
-      .claimWithSplToken(splTokenRedPacketID)
+      .claimWithSplToken()
       .accounts({
         redPacket: splTokenRedPacket,
         signer: randomUser.publicKey,
@@ -301,7 +314,7 @@ describe("redpacket", () => {
     await confirmTransaction(connection, airdropSignature);
 
     const tx = await redPacketProgram.methods
-      .claimWithNativeToken(nativeTokenRedPacketID)
+      .claimWithNativeToken()
       .accounts({
         redPacket: nativeTokenRedPacket,
         signer: randomUser.publicKey,
@@ -327,69 +340,10 @@ describe("redpacket", () => {
 
   it("withdraw spl token red packet", async () => {
     // Create red packet with very short expiry (2 seconds)
-    // 为 vault 创建相关的 PDA
-    const creatorVault = getAssociatedTokenAddressSync(
-      splTokenAccounts.tokenMint,
-      redPacketCreator.publicKey,
-      true,
-      TOKEN_PROGRAM
-    );
-    const creatorBalanceResponse = await connection.getTokenAccountBalance(
-      creatorVault
-    );
-    const creatorBalance = new anchor.BN(creatorBalanceResponse.value.amount);
-    console.log("creatorBalance", creatorBalance.toString());
 
-    // Create the red packet first
-    splTokenAccounts.redPacket = shortTimeSPLTokenRedPacket;
-
-    const vault = getAssociatedTokenAddressSync(
-      splTokenAccounts.tokenMint,
-      shortTimeSPLTokenRedPacket,
-      true,
-      TOKEN_PROGRAM
-    );
-    splTokenAccounts.vault = vault;
-
-    const expiry = new anchor.BN(Date.now() + 2 * SECONDS);
-    const totalNumber = new anchor.BN(3);
-    const totalAmount = new anchor.BN(3);
-
-    const tx = await redPacketProgram.methods
-      .createRedPacketWithSplToken(
-        shortTimeSPLTokenRedPacketID,
-        totalNumber,
-        totalAmount,
-        expiry,
-        false
-      )
-      .accounts({
-        ...splTokenAccounts,
-      })
-      .signers([redPacketCreator])
-      .rpc();
-    await provider.connection.confirmTransaction(tx);
-    //console.log(tx);
-
-    // Print the logs
-    await getLogs(tx);
-
-    // Wait for the red packet to expire
-    console.log("Waiting for red packet to expire...");
-    console.log("Now time is: ", Date.now());
-    await delay(6 * SECONDS);
-    console.log("Wait complete, proceeding with withdrawal...", Date.now());
-    console.log("After wait, Now time is: ", Date.now().toString());
-
-    const signerTokenAccount = getAssociatedTokenAddressSync(
-      splTokenAccounts.tokenMint,
-      redPacketCreator.publicKey,
-      true,
-      TOKEN_PROGRAM
-    );
     // Now perform withdrawal
     const withdrawTx = await redPacketProgram.methods
-      .withdrawWithSplToken(shortTimeSPLTokenRedPacketID)
+      .withdrawWithSplToken()
       .accounts({
         redPacket: shortTimeSPLTokenRedPacket,
         signer: redPacketCreator.publicKey,
@@ -405,9 +359,6 @@ describe("redpacket", () => {
     await provider.connection.confirmTransaction(withdrawTx);
     console.log(withdrawTx);
 
-    const creatorBalanceBefore = await connection.getBalance(
-      redPacketCreator.publicKey
-    );
     const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
       shortTimeSPLTokenRedPacket
     );
@@ -415,51 +366,11 @@ describe("redpacket", () => {
   });
 
   it("withdraw native token red packet", async () => {
-    const redPacketExpiry = new anchor.BN(Date.now() + 2 * SECONDS);
-    const redPacketTotalNumber = new anchor.BN(3);
-    const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
-    const tx = await redPacketProgram.methods
-      .createRedPacketWithNativeToken(
-        shortTimeNativeTokenRedPacketID,
-        redPacketTotalNumber,
-        redPacketTotalAmount,
-        redPacketExpiry,
-        false // if_split_random
-      )
-      .accounts({
-        signer: redPacketCreator.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-        redPacket: shortTimeNativeTokenRedPacket,
-      })
-      .signers([redPacketCreator])
-      .rpc();
-    await provider.connection.confirmTransaction(tx);
-    // Fetch and verify the created red packet account
-
-    let redPacketAccount = await redPacketProgram.account.redPacket.fetch(
-      shortTimeNativeTokenRedPacket
-    );
-    expect(redPacketAccount.withdrawStatus).equal(0);
-
-    // Wait for the red packet to expire
-    console.log("Waiting for red packet to expire...");
-    console.log("Now time is: ", Date.now() / 1000);
-    await delay(10 * SECONDS);
-    console.log(
-      "Wait complete, proceeding with withdrawal...",
-      Date.now() / 1000
-    );
-    console.log("After wait, Now time is: ", Date.now() / 1000);
-
-    const creatorTokenBalanceBefore = await connection.getBalance(
-      redPacketCreator.publicKey
-    );
-    console.log("creatorTokenBalanceBefore", creatorTokenBalanceBefore);
     // Now perform withdrawal
     const withdrawTx = await redPacketProgram.methods
-      .withdrawWithNativeToken(shortTimeNativeTokenRedPacketID)
+      .withdrawWithNativeToken()
       .accounts({
-        redPacket: shortTimeNativeTokenRedPacket,
+        redPacket: nativeTokenRedPacket,
         signer: redPacketCreator.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
@@ -471,7 +382,7 @@ describe("redpacket", () => {
     await getLogs(withdrawTx);
 
     //Check red packet
-    redPacketAccount = await redPacketProgram.account.redPacket.fetch(
+    const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
       shortTimeNativeTokenRedPacket
     );
     expect(redPacketAccount.withdrawStatus).equal(1);
