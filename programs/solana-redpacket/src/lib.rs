@@ -9,6 +9,8 @@ use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
+//use ed25519_dalek::{PublicKey, Signature, Verifier};
+
 pub use constants::*;
 pub use transfer::*;
 
@@ -93,6 +95,10 @@ pub mod redpacket {
         
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
+        
+        // verify signature
+  //      require!(verify_signature(red_packet.key(), ctx.accounts.signer.key(), &signature), CustomError::InvalidSignature);
+        
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
 
         // check if the claim amount is valid
@@ -129,6 +135,7 @@ pub mod redpacket {
         require!(current_time < expiry, CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
+     
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
         
         // check if the claim amount is valid
@@ -384,6 +391,8 @@ pub enum CustomError {
     InvalidInitialParamsForTokenAccount,
     #[msg("The red packet has expired.")]
     RedPacketExpired,
+    #[msg("Invalid signature.")]
+    InvalidSignature,
     #[msg("The claim amount is invalid.")]
     InvalidClaimAmount,
     #[msg("The red packet has not yet expired.")]
