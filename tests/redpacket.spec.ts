@@ -241,7 +241,8 @@ describe("redpacket", () => {
     const redPacketTotalNumber = new anchor.BN(3);
     const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
 
-    nativeRedPacketCreateTime = new anchor.BN(Math.floor(Date.now() / 1000));
+    nativeRedPacketCreateTime = splRedPacketCreateTime.add(new anchor.BN(1));
+
     nativeTokenRedPacket = PublicKey.findProgramAddressSync(
       [
         redPacketCreator.publicKey.toBuffer(),
@@ -294,7 +295,7 @@ describe("redpacket", () => {
     console.log("Create time:", splRedPacketCreateTime.toString());
 
     // Re-derive the PDA
-    const redPacketPDA = PublicKey.findProgramAddressSync(
+    const redPacket = PublicKey.findProgramAddressSync(
       [
         redPacketCreator.publicKey.toBuffer(),
         Buffer.from(splRedPacketCreateTime.toArray("le", 8)),
@@ -302,11 +303,11 @@ describe("redpacket", () => {
       redPacketProgram.programId
     )[0];
 
-    console.log("Red Packet PDA:", redPacketPDA.toString());
+    console.log("Red Packet PDA:", redPacket.toString());
     console.log("Expected Red Packet:", splTokenRedPacket.toString());
 
     // Verify they match
-    expect(redPacketPDA.toString()).to.equal(splTokenRedPacket.toString());
+    expect(redPacket.toString()).to.equal(splTokenRedPacket.toString());
 
     // Get claimer's token account
     const claimerTokenAccount = getAssociatedTokenAddressSync(
@@ -319,7 +320,7 @@ describe("redpacket", () => {
     // Get vault account
     const vaultAccount = getAssociatedTokenAddressSync(
       tokenMint,
-      redPacketPDA,
+      redPacket,
       true,
       TOKEN_PROGRAM
     );
@@ -357,7 +358,7 @@ describe("redpacket", () => {
 
     // Fetch and verify the updated red packet state
     const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
-      redPacketPDA
+      redPacket
     );
     expect(redPacketAccount.claimedNumber.toString()).to.equal("1");
 
