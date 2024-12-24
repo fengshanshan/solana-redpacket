@@ -1,7 +1,10 @@
 pub mod constants;
 pub mod transfer;
 
-use anchor_lang::prelude::*;
+use anchor_lang::{
+    prelude::*,
+    solana_program::hash::hash,
+};
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, TokenAccount, TokenInterface},
@@ -9,7 +12,7 @@ use anchor_spl::{
 pub use constants::*;
 pub use transfer::*;
 
-declare_id!("4JVUx5uJefFwuWu4R13wVb3CeBddzB19NoUCsCGjzeKr");
+declare_id!("4ezSV2k7oeZZnc6MoV33j56d73MSzBHUSYAttXCD5f2k");
 
 
 #[program]
@@ -90,7 +93,7 @@ pub mod redpacket {
         
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
-        let claim_amount = calculate_claim_amount(red_packet);
+        let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
 
         // check if the claim amount is valid
         require!(red_packet.claimed_amount + claim_amount <= red_packet.total_amount, CustomError::InvalidClaimAmount);
@@ -126,7 +129,7 @@ pub mod redpacket {
         require!(current_time < expiry, CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
-        let claim_amount = calculate_claim_amount(red_packet);
+        let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
         
         // check if the claim amount is valid
         require!(red_packet.claimed_amount + claim_amount <= red_packet.total_amount, CustomError::InvalidClaimAmount);
@@ -333,7 +336,7 @@ pub fn initialize_red_packet(
     });
 }
 
-fn calculate_claim_amount(red_packet: &mut RedPacket) -> u64 {
+fn calculate_claim_amount(red_packet: &Account<RedPacket>, signer_key: Pubkey) -> u64 {
     let claim_amount: u64;
 
     let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
@@ -344,11 +347,21 @@ fn calculate_claim_amount(red_packet: &mut RedPacket) -> u64 {
     if red_packet.if_spilt_random == constants::RED_PACKET_SPILT_EQUAL {
         claim_amount = red_packet.total_amount / red_packet.total_number;   
     } else {
-        // todo spilt random
-        //let random_amount = random(0, remaining_amount);
-        claim_amount = 0;
+        let random_value = generate_random_number(red_packet.key(), signer_key);
+        let claim_value = random_value % ((remaining_amount * 2) / (red_packet.total_number - red_packet.claimed_number));
+        claim_amount = if claim_value == 0 { 1 } else { claim_value };
     } 
+    msg!("claim_amount: {}", claim_amount);
     return claim_amount;
+}
+
+fn generate_random_number(redpacket_key: Pubkey, signer_key: Pubkey) -> u64 {
+    let clock = Clock::get().unwrap();
+    let current_timestamp = clock.unix_timestamp;
+
+    let seed = format!("{}{}{}", redpacket_key, signer_key, current_timestamp);
+    let hash_value = hash(seed.as_bytes()); 
+    u64::from_le_bytes(hash_value.to_bytes()[0..8].try_into().unwrap())
 }
 
 #[error_code]
