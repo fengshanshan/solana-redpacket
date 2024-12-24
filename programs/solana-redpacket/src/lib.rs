@@ -17,27 +17,22 @@ pub mod redpacket {
     use super::*;
 
     pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
-        msg!("Debug - Received params:");
-        msg!("Signer: {:?}", ctx.accounts.signer.key());
-        msg!("Create time: {:?}", create_time);
-        
         // params check
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
-        // expiry check
-        let _current_time = Clock::get()?.unix_timestamp.try_into().unwrap();
-        require!(_current_time - create_time <= 2, CustomError::InvalidCreateTime);
-        require!(create_time + duration > _current_time, CustomError::InvalidExpiryTime);
+        // time check
+        let _current_time = Clock::get().unwrap().unix_timestamp;
+        // create time valid check
+        // TODO:  maybe need to give a more reasonable time range   
+        require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
+        // expiry time valid
+        require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
         require!(ctx.accounts.token_account.amount >= total_amount, CustomError::InvalidTokenAmount);
 
-        // Transfer SPL tokens from initializer to PDA account (red packet account)
-        // Signer seeds for PDA authority
+        //Transfer SPL tokens from initializer to PDA account (red packet account)
+        //Signer seeds for PDA authority
         let binding = ctx.accounts.signer.key();
-        let seeds = &[binding.as_ref(), &create_time.to_le_bytes()];
-       
-        msg!("create_time: {:?}", create_time);
-        msg!("seeds: {:?}", seeds);
-        
+        let seeds = &[binding.as_ref(), &create_time.to_le_bytes()];      
         let signer_seeds = &[&seeds[..]];
 
         transfer::transfer_tokens(
@@ -54,14 +49,16 @@ pub mod redpacket {
         Ok(())
     }
 
-    pub fn create_red_packet_with_native_token(ctx: Context<RedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
+    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
         // params check
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
-        // expiry check
-        let _current_time = Clock::get()?.unix_timestamp.try_into().unwrap();
-        let expiry = create_time + duration;
-        require!(_current_time - create_time <= 2, CustomError::InvalidCreateTime);
-        require!(expiry > _current_time, CustomError::InvalidExpiryTime);
+    
+        // time check
+        let _current_time = Clock::get().unwrap().unix_timestamp;
+        // create time valid check
+        // TODO:  maybe need to give a more reasonable time range 
+        require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
+        require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
         require!(ctx.accounts.signer.lamports() >= total_amount, CustomError::InvalidTokenAmount);
         // Transfer tokens from initializer to PDA account (red packet account)
@@ -85,14 +82,12 @@ pub mod redpacket {
 
     }
     
-
-
     pub fn claim_with_spl_token(ctx: Context<RedPacketWithSPLToken>) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
-        let _current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
-        
+        let _current_time = Clock::get().unwrap().unix_timestamp;
         let expiry = red_packet.create_time + red_packet.duration;
-        require!(_current_time < expiry, CustomError::RedPacketExpired);
+        require!(_current_time < expiry as i64, CustomError::RedPacketExpired);
+        
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
         let claim_amount = calculate_claim_amount(red_packet);
@@ -103,7 +98,8 @@ pub mod redpacket {
         // Transfer SPL tokens from vault to claimer's token account
         // Signer seeds for PDA authority
         let binding = red_packet.creator.key();
-        let seeds = &[binding.as_ref(), &red_packet.create_time.to_le_bytes()];
+        let binding_time = red_packet.create_time.to_le_bytes();
+        let seeds = &[binding.as_ref(), binding_time.as_ref(), &[ctx.bumps.red_packet]];
         let signer_seeds = &[&seeds[..]];
         transfer::transfer_tokens(
             &ctx.accounts.vault,
@@ -159,7 +155,8 @@ pub mod redpacket {
         // Transfer SPL tokens from vault to claimer's token account
         // Signer seeds for PDA authority
         let binding = red_packet.creator.key();
-        let seeds = &[binding.as_ref(), &red_packet.create_time.to_le_bytes()];
+        let binding_time = red_packet.create_time.to_le_bytes();
+        let seeds = &[binding.as_ref(), binding_time.as_ref(), &[ctx.bumps.red_packet]];
         let signer_seeds = &[&seeds[..]];
         transfer::transfer_tokens(
             &ctx.accounts.vault,
@@ -197,13 +194,18 @@ pub mod redpacket {
 
 
 #[derive(Accounts)]
-#[instruction(create_time: u64)] 
+#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool)] 
 pub struct CreateRedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
     
-    #[account(init, payer = signer, space = 8 + RedPacket::INIT_SPACE,seeds = [signer.key().as_ref(), &create_time.to_le_bytes()],
-    bump)]
+    #[account(
+        init, 
+        payer = signer, 
+        space = 8 + RedPacket::INIT_SPACE, 
+        seeds = [signer.key().as_ref(), create_time.to_le_bytes().as_ref()], 
+        bump
+    )]
     pub red_packet: Account<'info, RedPacket>,
 
     pub token_mint: InterfaceAccount<'info, Mint>,
@@ -232,12 +234,11 @@ pub struct CreateRedPacketWithSPLToken<'info> {
 
 
 #[derive(Accounts)]
-#[instruction(creator: Pubkey, create_time: u64)] 
 pub struct RedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
     
-    #[account(mut, seeds = [creator.key().as_ref(), &create_time.to_le_bytes()], bump)]
+    #[account(mut, seeds = [red_packet.creator.key().as_ref(), red_packet.create_time.to_le_bytes().as_ref()], bump)]
     pub red_packet: Account<'info, RedPacket>,
 
     pub token_mint: InterfaceAccount<'info, Mint>,
@@ -265,12 +266,23 @@ pub struct RedPacketWithSPLToken<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(creator: Pubkey, create_time: u64)] 
+#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool)] 
+pub struct CreateRedPacketWithNativeToken<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+
+    #[account(init, payer = signer, space = 8 + RedPacket::INIT_SPACE, seeds = [signer.key().as_ref(), create_time.to_le_bytes().as_ref()], bump)]
+    pub red_packet: Account<'info, RedPacket>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct RedPacketWithNativeToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
 
-    #[account(init_if_needed, payer = signer, space = 8 + RedPacket::INIT_SPACE, seeds = [creator.key().as_ref(), &create_time.to_le_bytes()], bump)]
+    #[account(mut, seeds = [red_packet.creator.key().as_ref(), red_packet.create_time.to_le_bytes().as_ref()], bump)]
     pub red_packet: Account<'info, RedPacket>,
 
     pub system_program: Program<'info, System>,
