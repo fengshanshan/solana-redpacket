@@ -1,20 +1,18 @@
 pub mod constants;
 pub mod transfer;
 
-use anchor_lang::{
-    prelude::*,
-    solana_program::hash::hash,
-};
+use anchor_lang::prelude::*;
+use solana_program::sysvar::instructions::load_instruction_at_checked;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
-//use ed25519_dalek::{PublicKey, Signature, Verifier};
+use solana_program::instruction::Instruction;
 
 pub use constants::*;
 pub use transfer::*;
 
-declare_id!("4ezSV2k7oeZZnc6MoV33j56d73MSzBHUSYAttXCD5f2k");
+declare_id!("51UwbxcQkVjBnJXVYTCpmB2sbjTsySrdnFC2QsEUL2Gf");
 
 
 #[program]
@@ -87,7 +85,7 @@ pub mod redpacket {
 
     }
     
-    pub fn claim_with_spl_token(ctx: Context<RedPacketWithSPLToken>) -> Result<()> {
+    pub fn claim_with_spl_token(ctx: Context<RedPacketWithSPLToken>, signature: [u8; 64], message: [u8; 32]) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
         let _current_time = Clock::get().unwrap().unix_timestamp;
         let expiry = red_packet.create_time + red_packet.duration;
@@ -97,7 +95,7 @@ pub mod redpacket {
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
         
         // verify signature
-  //      require!(verify_signature(red_packet.key(), ctx.accounts.signer.key(), &signature), CustomError::InvalidSignature);
+        require!(verify_ed25519_signature(&ctx.accounts.instructions, &ctx.accounts.signer.key(), &message).is_ok(), CustomError::InvalidSignature);
         
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
 
@@ -247,10 +245,13 @@ pub struct CreateRedPacketWithSPLToken<'info> {
 pub struct RedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
-    
+
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
+
     #[account(mut, seeds = [red_packet.creator.key().as_ref(), red_packet.create_time.to_le_bytes().as_ref()], bump)]
     pub red_packet: Account<'info, RedPacket>,
-
+  
     pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
@@ -273,6 +274,9 @@ pub struct RedPacketWithSPLToken<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+    /// CHECK: Ed25519Program ID is checked in constraint
+    #[account(address = anchor_lang::solana_program::ed25519_program::ID)]
+    pub ed25519_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -369,6 +373,46 @@ fn generate_random_number(redpacket_key: Pubkey, signer_key: Pubkey) -> u64 {
     let seed = format!("{}{}{}", redpacket_key, signer_key, current_timestamp);
     let hash_value = hash(seed.as_bytes()); 
     u64::from_le_bytes(hash_value.to_bytes()[0..8].try_into().unwrap())
+}
+
+fn verify_ed25519_signature(
+    instructions_sysvar: &AccountInfo,
+    expected_signer: &Pubkey,
+    expected_message: &[u8; 32]
+) -> Result<()> {
+    let current_index = load_current_index_checked(instructions_sysvar).unwrap();
+    if current_index == 0 {
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    let previous_instruction = load_instruction_at_checked(current_index - 1, instructions_sysvar).unwrap();
+    
+    if !is_valid_ed25519_instruction(&previous_instruction, expected_signer, expected_message) {
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    Ok(())
+}
+
+fn is_valid_ed25519_instruction(
+    instruction: &Instruction,
+    expected_pubkey: &Pubkey,
+    expected_message: &[u8; 32]
+) -> bool {
+    if instruction.program_id != solana_program::ed25519_program::id() {
+        return false;
+    }
+
+    // Ed25519 instruction data format:
+    // [signature(64)] [public_key(32)] [message(...)]
+    if instruction.data.len() < 64 + 32 + 32 {
+        return false;
+    }
+
+    let pubkey = &instruction.data[64..96];
+    let message = &instruction.data[96..];
+
+    pubkey == expected_pubkey.as_ref() && message == expected_message
 }
 
 #[error_code]

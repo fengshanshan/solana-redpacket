@@ -19,6 +19,9 @@ import {
 } from "@solana/spl-token";
 import { expect } from "chai";
 
+import nacl from "tweetnacl";
+import { decodeUTF8 } from "tweetnacl-util";
+
 // Work on both Token Program and new Token Extensions Program
 const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
   TOKEN_2022_PROGRAM_ID;
@@ -119,7 +122,7 @@ describe("redpacket", () => {
     await confirmTransaction(connection, airdropSignatureClaimer);
   });
 
-  it("create SPL token redpacket", async () => {
+  it.only("create SPL token redpacket", async () => {
     const creatorTokenBalanceBefore = await connection.getTokenAccountBalance(
       tokenAccount
     );
@@ -289,11 +292,29 @@ describe("redpacket", () => {
     );
   });
 
-  it("claim spl token red packet", async () => {
+  it.only("claim spl token red packet", async () => {
     // Debug logs
     console.log("Creator:", redPacketCreator.publicKey.toString());
     console.log("Create time:", splRedPacketCreateTime.toString());
 
+    const message = "The quick brown fox jumps over the lazy dog";
+    //const messageBytes = decodeUTF8(message);
+    const messageBytes = new Uint8Array(32);
+    const tempMsgBytes = decodeUTF8(message);
+    messageBytes.set(tempMsgBytes.slice(0, 32));
+
+    const signature = nacl.sign.detached(
+      messageBytes,
+      redPacketCreator.secretKey
+    );
+    console.log("Signature:", signature);
+    const result = nacl.sign.detached.verify(
+      messageBytes,
+      signature,
+      redPacketCreator.publicKey.toBytes()
+    );
+
+    console.log("Verify result:", result);
     // Re-derive the PDA
     const redPacket = PublicKey.findProgramAddressSync(
       [
@@ -330,10 +351,10 @@ describe("redpacket", () => {
 
     // Verify vault matches
     expect(vaultAccount.toString()).to.equal(vault.toString());
-
+    const signatureBuffer = Buffer.from(signature);
     try {
       const tx = await redPacketProgram.methods
-        .claimWithSplToken()
+        .claimWithSplToken(signatureBuffer, messageBytes)
         .accounts({
           signer: randomUser.publicKey,
           redPacket,
@@ -343,6 +364,9 @@ describe("redpacket", () => {
           tokenProgram: TOKEN_PROGRAM,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: anchor.web3.SystemProgram.programId,
+          ed25519Program: new PublicKey(
+            "Ed25519SigVerify111111111111111111111111111"
+          ),
         })
         .signers([randomUser])
         .rpc();
