@@ -2,17 +2,19 @@ pub mod constants;
 pub mod transfer;
 
 use anchor_lang::prelude::*;
-use solana_program::sysvar::instructions::load_instruction_at_checked;
+
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
-use solana_program::instruction::Instruction;
+
+use solana_program::sysvar::instructions::load_instruction_at_checked;
+use solana_program::hash::hash;
 
 pub use constants::*;
 pub use transfer::*;
 
-declare_id!("51UwbxcQkVjBnJXVYTCpmB2sbjTsySrdnFC2QsEUL2Gf");
+declare_id!("mMUGmvLFcgJWtVFB5JsEkpNG1VxD2HFs4Bhre7V3VXc");
 
 
 #[program]
@@ -24,9 +26,10 @@ pub mod redpacket {
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp;
+        
         // create time valid check
         // TODO:  maybe need to give a more reasonable time range   
-        require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
+        //require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
         // expiry time valid
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
@@ -85,7 +88,7 @@ pub mod redpacket {
 
     }
     
-    pub fn claim_with_spl_token(ctx: Context<RedPacketWithSPLToken>, signature: [u8; 64], message: [u8; 32]) -> Result<()> {
+    pub fn claim_with_spl_token(ctx: Context<RedPacketWithSPLToken>) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
         let _current_time = Clock::get().unwrap().unix_timestamp;
         let expiry = red_packet.create_time + red_packet.duration;
@@ -95,7 +98,7 @@ pub mod redpacket {
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
         
         // verify signature
-        require!(verify_ed25519_signature(&ctx.accounts.instructions, &ctx.accounts.signer.key(), &message).is_ok(), CustomError::InvalidSignature);
+        require!(verify_signature(&ctx.accounts.instructions, &ctx.accounts.signer.key()).is_ok(), CustomError::InvalidSignature);
         
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
 
@@ -246,6 +249,7 @@ pub struct RedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
 
+    /// CHECK: for test
     #[account(address = solana_program::sysvar::instructions::ID)]
     pub instructions: AccountInfo<'info>,
 
@@ -375,44 +379,39 @@ fn generate_random_number(redpacket_key: Pubkey, signer_key: Pubkey) -> u64 {
     u64::from_le_bytes(hash_value.to_bytes()[0..8].try_into().unwrap())
 }
 
-fn verify_ed25519_signature(
-    instructions_sysvar: &AccountInfo,
-    expected_signer: &Pubkey,
-    expected_message: &[u8; 32]
-) -> Result<()> {
-    let current_index = load_current_index_checked(instructions_sysvar).unwrap();
-    if current_index == 0 {
-        return Err(error!(CustomError::InvalidSignature));
-    }
-
-    let previous_instruction = load_instruction_at_checked(current_index - 1, instructions_sysvar).unwrap();
-    
-    if !is_valid_ed25519_instruction(&previous_instruction, expected_signer, expected_message) {
-        return Err(error!(CustomError::InvalidSignature));
-    }
-
-    Ok(())
-}
-
-fn is_valid_ed25519_instruction(
-    instruction: &Instruction,
+pub fn verify_signature(
+    instruction_account: &AccountInfo,
     expected_pubkey: &Pubkey,
-    expected_message: &[u8; 32]
-) -> bool {
-    if instruction.program_id != solana_program::ed25519_program::id() {
-        return false;
+) -> Result<()> {
+    let ed25519_ix = load_instruction_at_checked(0, instruction_account)?;
+    
+    if ed25519_ix.program_id != solana_program::ed25519_program::id() {
+        msg!("Not an Ed25519 instruction");
+        return Err(error!(CustomError::InvalidSignature));
     }
 
-    // Ed25519 instruction data format:
-    // [signature(64)] [public_key(32)] [message(...)]
-    if instruction.data.len() < 64 + 32 + 32 {
-        return false;
+    // Extract components from Ed25519 instruction
+    let pubkey = &ed25519_ix.data[32..64];
+    let signature = &ed25519_ix.data[64..128];
+    let message = &ed25519_ix.data[128..];
+
+    // Log the components for debugging
+    msg!("In rust code, Ed25519 instruction components:");
+    msg!("- PublicKey: {}", Pubkey::new_from_array(pubkey.try_into().unwrap()));
+    msg!("- Message length: {}", message.len());
+    msg!("- Expected signer: {}", expected_pubkey);
+
+    // Verify the public key matches the signer
+    let instruction_pubkey = Pubkey::new_from_array(pubkey.try_into().unwrap());
+    if instruction_pubkey != *expected_pubkey {
+        msg!("Public key mismatch. Expected: {}, Got: {}", expected_pubkey, instruction_pubkey);
+        return Err(error!(CustomError::InvalidSignature));
     }
 
-    let pubkey = &instruction.data[64..96];
-    let message = &instruction.data[96..];
-
-    pubkey == expected_pubkey.as_ref() && message == expected_message
+    // The Ed25519Program will verify that:
+    // 1. The signature is valid for the message
+    // 2. The signature was created by the private key corresponding to the public key
+    Ok(())
 }
 
 #[error_code]

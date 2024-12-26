@@ -6,10 +6,14 @@ import {
   createAccountsMintsAndTokenAccounts,
 } from "@solana-developers/helpers";
 import {
+  Ed25519Program,
   LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
   sendAndConfirmTransaction,
   Transaction,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -21,6 +25,7 @@ import { expect } from "chai";
 
 import nacl from "tweetnacl";
 import { decodeUTF8 } from "tweetnacl-util";
+import bs58 from "bs58";
 
 // Work on both Token Program and new Token Extensions Program
 const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
@@ -35,6 +40,7 @@ describe("redpacket", () => {
   const connection = provider.connection;
   const signer = (provider.wallet as anchor.Wallet).payer;
   const randomUser = anchor.web3.Keypair.generate();
+  const randomUser2 = anchor.web3.Keypair.generate();
 
   let redPacketCreator: anchor.web3.Keypair;
   let splTokenRedPacket: PublicKey;
@@ -297,24 +303,6 @@ describe("redpacket", () => {
     console.log("Creator:", redPacketCreator.publicKey.toString());
     console.log("Create time:", splRedPacketCreateTime.toString());
 
-    const message = "The quick brown fox jumps over the lazy dog";
-    //const messageBytes = decodeUTF8(message);
-    const messageBytes = new Uint8Array(32);
-    const tempMsgBytes = decodeUTF8(message);
-    messageBytes.set(tempMsgBytes.slice(0, 32));
-
-    const signature = nacl.sign.detached(
-      messageBytes,
-      redPacketCreator.secretKey
-    );
-    console.log("Signature:", signature);
-    const result = nacl.sign.detached.verify(
-      messageBytes,
-      signature,
-      redPacketCreator.publicKey.toBytes()
-    );
-
-    console.log("Verify result:", result);
     // Re-derive the PDA
     const redPacket = PublicKey.findProgramAddressSync(
       [
@@ -351,27 +339,176 @@ describe("redpacket", () => {
 
     // Verify vault matches
     expect(vaultAccount.toString()).to.equal(vault.toString());
-    const signatureBuffer = Buffer.from(signature);
+    //const signatureBuffer = Buffer.from(signature);
     try {
-      const tx = await redPacketProgram.methods
-        .claimWithSplToken(signatureBuffer, messageBytes)
+      console.log("Random User Public Key:", randomUser.publicKey.toBase58());
+
+      // Generate the message
+      const message = Buffer.concat([
+        redPacket.toBytes(),
+        randomUser.publicKey.toBytes(),
+      ]);
+      console.log("Original message:", bs58.encode(message));
+
+      // Sign the message
+      const signature = nacl.sign.detached(message, randomUser.secretKey);
+
+      // Verify signature before creating instruction
+      const verifyResult = nacl.sign.detached.verify(
+        message,
+        signature,
+        randomUser.publicKey.toBytes()
+      );
+      console.log("Signature verification:", verifyResult);
+
+      // Important: Log the components before creating instruction
+      console.log("Components before instruction creation:");
+      console.log("- PublicKey:", randomUser.publicKey.toBase58());
+      console.log(
+        "- PublicKey bytes length:",
+        randomUser.publicKey.toBytes().length
+      );
+      console.log("- Signature length:", signature.length);
+      console.log("- Message length:", message.length);
+
+      // Create Ed25519 instruction
+      const pubkeyBytes = randomUser.publicKey.toBytes();
+      console.log("\nCreating Ed25519 instruction with:");
+      console.log("PublicKey:", randomUser.publicKey.toBase58());
+      console.log("PublicKey bytes:", Buffer.from(pubkeyBytes).toString("hex"));
+      console.log("Message:", bs58.encode(message));
+      console.log("Signature:", Buffer.from(signature).toString("hex"));
+
+      // Create Ed25519 instruction data manually
+      const NUM_SIGNATURES = 1;
+      const SIGNATURE_OFFSET = 64;
+      const PUBKEY_OFFSET = 32;
+      const MESSAGE_OFFSET = 128;
+
+      const instructionData = Buffer.alloc(MESSAGE_OFFSET + message.length);
+
+      // Write header
+      instructionData.writeUInt8(NUM_SIGNATURES, 0);
+      instructionData.writeUInt32LE(SIGNATURE_OFFSET, 8);
+      instructionData.writeUInt32LE(PUBKEY_OFFSET, 12);
+      instructionData.writeUInt32LE(MESSAGE_OFFSET, 16);
+
+      // Write data
+      instructionData.set(pubkeyBytes, PUBKEY_OFFSET);
+      instructionData.set(signature, SIGNATURE_OFFSET);
+      instructionData.set(message, MESSAGE_OFFSET);
+
+      // Create Ed25519 instruction
+      const ed25519Instruction = new TransactionInstruction({
+        keys: [],
+        programId: Ed25519Program.programId,
+        data: Buffer.concat([
+          Buffer.from([1]), // number of signatures
+          Buffer.alloc(7), // padding
+          Buffer.from(new Uint32Array([64]).buffer), // signature offset
+          Buffer.from(new Uint32Array([32]).buffer), // public key offset
+          Buffer.from(new Uint32Array([128]).buffer), // message offset
+          Buffer.from(new Uint32Array([message.length]).buffer), // message length
+          randomUser.publicKey.toBytes(), // public key
+          Buffer.from(signature), // signature
+          message, // message
+        ]),
+      });
+      // Verify the instruction data
+      const instructionPubkey = new PublicKey(
+        ed25519Instruction.data.slice(32, 64)
+      );
+      const instructionMessage = ed25519Instruction.data.slice(128);
+      const instructionSignature = ed25519Instruction.data.slice(64, 128);
+
+      console.log("\nInstruction verification:");
+      console.log("Original PublicKey:", randomUser.publicKey.toBase58());
+      console.log("Instruction PublicKey:", instructionPubkey.toBase58());
+      console.log("Original message:", bs58.encode(message));
+      console.log("Instruction message:", bs58.encode(instructionMessage));
+      console.log(
+        "Signature verification with instruction data:",
+        nacl.sign.detached.verify(
+          instructionMessage,
+          instructionSignature,
+          instructionPubkey.toBytes()
+        )
+      );
+
+      //Verify the instruction data
+      const pubkeyFromInstruction = new PublicKey(
+        ed25519Instruction.data.slice(PUBKEY_OFFSET, PUBKEY_OFFSET + 32)
+      );
+      const messageFromInstruction =
+        ed25519Instruction.data.slice(MESSAGE_OFFSET);
+
+      console.log("Verification after instruction creation:");
+      console.log("- Original pubkey:", randomUser.publicKey.toBase58());
+      console.log("- Instruction pubkey:", pubkeyFromInstruction.toBase58());
+      console.log("- Original message:", bs58.encode(message));
+      console.log(
+        "- Instruction message:",
+        bs58.encode(messageFromInstruction)
+      );
+
+      // Create claim instruction
+      const claimInstruction = await redPacketProgram.methods
+        .claimWithSplToken()
         .accounts({
           signer: randomUser.publicKey,
+          instructions: SYSVAR_INSTRUCTIONS_PUBKEY,
           redPacket,
-          tokenMint: tokenMint,
+          tokenMint,
           tokenAccount: claimerTokenAccount,
           vault: vaultAccount,
           tokenProgram: TOKEN_PROGRAM,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-          systemProgram: anchor.web3.SystemProgram.programId,
-          ed25519Program: new PublicKey(
-            "Ed25519SigVerify111111111111111111111111111"
-          ),
+          systemProgram: SystemProgram.programId,
+          ed25519Program: Ed25519Program.programId,
         })
-        .signers([randomUser])
-        .rpc();
+        .instruction();
 
-      await provider.connection.confirmTransaction(tx);
+      // Create transaction
+      const transaction = new Transaction();
+
+      // Important: Set recent blockhash first
+      transaction.recentBlockhash = (
+        await connection.getLatestBlockhash()
+      ).blockhash;
+      transaction.feePayer = randomUser.publicKey;
+
+      // Add instructions in correct order
+      transaction.add(ed25519Instruction);
+      transaction.add(claimInstruction);
+
+      // Debug log the transaction setup
+      console.log("\nTransaction setup:");
+      console.log("Fee payer:", transaction.feePayer.toBase58());
+      console.log("Recent blockhash:", transaction.recentBlockhash);
+      transaction.instructions.forEach((ix, i) => {
+        console.log(`\nInstruction ${i}:`);
+        console.log("Program ID:", ix.programId.toBase58());
+        console.log(
+          "Keys:",
+          ix.keys.map((k) => ({
+            pubkey: k.pubkey.toBase58(),
+            signer: k.isSigner,
+            writable: k.isWritable,
+          }))
+        );
+      });
+
+      const txSignature = await sendAndConfirmTransaction(
+        connection,
+        transaction,
+        [randomUser],
+        {
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+          commitment: "confirmed",
+        }
+      );
+      console.log("Transaction signature:", txSignature);
     } catch (error) {
       console.error("Transaction failed:", error);
       if (error.logs) {
