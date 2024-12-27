@@ -161,7 +161,7 @@ pub mod redpacket {
         require!(red_packet.withdraw_status == constants::RED_PACKET_WITHDRAW_STATUS_NOT_WITHDRAW, CustomError::RedPacketWithdrawn);
         let _current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
         let expiry = red_packet.create_time + red_packet.duration;
-        //require!(_current_time >= expiry, CustomError::RedPacketNotExpired);
+        require!(_current_time >= expiry, CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
 
         let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
@@ -192,7 +192,7 @@ pub mod redpacket {
         require!(red_packet.withdraw_status == constants::RED_PACKET_WITHDRAW_STATUS_NOT_WITHDRAW, CustomError::RedPacketWithdrawn);
         let current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
         let expiry = red_packet.create_time + red_packet.duration;
-        //require!(current_time >= expiry, CustomError::RedPacketNotExpired);
+        require!(current_time >= expiry, CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
 
         let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
