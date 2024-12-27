@@ -38,8 +38,10 @@ pub mod redpacket {
 
         //Transfer SPL tokens from initializer to PDA account (red packet account)
         //Signer seeds for PDA authority
+        // Signer seeds for PDA authority
         let binding = ctx.accounts.signer.key();
-        let seeds = &[binding.as_ref(), &create_time.to_le_bytes()];      
+        let binding_time = create_time.to_le_bytes();
+        let seeds = &[binding.as_ref(), binding_time.as_ref(), &[ctx.bumps.red_packet]];
         let signer_seeds = &[&seeds[..]];
 
         transfer::transfer_tokens(

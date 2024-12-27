@@ -32,6 +32,8 @@ const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
 const SECONDS = 1000;
 
 const claimer_issuer = getKeypairFromEnvironment("CLAIMER_ISSUER_SECRET_KEY");
+const randomUser = getKeypairFromEnvironment("RANDOM_KEY_1");
+const randomUser2 = getKeypairFromEnvironment("RANDOM_KEY_2");
 
 describe("redpacket", () => {
   // Configure the client to use the local cluster.
@@ -39,8 +41,8 @@ describe("redpacket", () => {
   anchor.setProvider(provider);
   const connection = provider.connection;
   const signer = (provider.wallet as anchor.Wallet).payer;
-  const randomUser = anchor.web3.Keypair.generate();
-  const randomUser2 = anchor.web3.Keypair.generate();
+  // const randomUser = anchor.web3.Keypair.generate();
+  // const randomUser2 = anchor.web3.Keypair.generate();
 
   let redPacketCreator: anchor.web3.Keypair;
   let splTokenRedPacket: PublicKey;
@@ -115,7 +117,7 @@ describe("redpacket", () => {
 
     console.log("Create time:", splRedPacketCreateTime.toString());
     console.log("splTokenRedPacket:", splTokenRedPacket.toString());
-
+    //console.log("bump:", bump);
     vault = getAssociatedTokenAddressSync(
       tokenMint,
       splTokenRedPacket,
@@ -348,7 +350,6 @@ describe("redpacket", () => {
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: anchor.web3.SystemProgram.programId,
           instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-          //rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .preInstructions([ed25519Instruction])
         .signers([randomUser])
