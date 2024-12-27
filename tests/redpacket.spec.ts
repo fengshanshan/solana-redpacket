@@ -4,12 +4,14 @@ import type { Redpacket } from "../target/types/redpacket";
 import {
   confirmTransaction,
   createAccountsMintsAndTokenAccounts,
+  getKeypairFromEnvironment,
 } from "@solana-developers/helpers";
 import {
+  Ed25519Program,
   LAMPORTS_PER_SOL,
   PublicKey,
-  sendAndConfirmTransaction,
-  Transaction,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  Keypair,
 } from "@solana/web3.js";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -17,13 +19,19 @@ import {
   type TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
-import { expect } from "chai";
+import { assert, expect } from "chai";
+import "dotenv/config";
+
+import nacl from "tweetnacl";
+import bs58 from "bs58";
 
 // Work on both Token Program and new Token Extensions Program
 const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
   TOKEN_2022_PROGRAM_ID;
 
 const SECONDS = 1000;
+
+const claimer_issuer = getKeypairFromEnvironment("CLAIMER_ISSUER_SECRET_KEY");
 
 describe("redpacket", () => {
   // Configure the client to use the local cluster.
@@ -32,6 +40,7 @@ describe("redpacket", () => {
   const connection = provider.connection;
   const signer = (provider.wallet as anchor.Wallet).payer;
   const randomUser = anchor.web3.Keypair.generate();
+  const randomUser2 = anchor.web3.Keypair.generate();
 
   let redPacketCreator: anchor.web3.Keypair;
   let splTokenRedPacket: PublicKey;
@@ -42,47 +51,7 @@ describe("redpacket", () => {
   let tokenMint: PublicKey;
   let tokenAccount: PublicKey;
 
-  // We're going to reuse these accounts across multiple tests
-  const nativeAccounts: Record<string, PublicKey> = {
-    systemProgram: anchor.web3.SystemProgram.programId,
-  };
-
-  // const splTokenAccounts: Record<string, PublicKey> = {
-  //   tokenProgram: TOKEN_PROGRAM,
-  //   associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-  //   systemProgram: anchor.web3.SystemProgram.programId,
-  // };
-
   const redPacketProgram = anchor.workspace.Redpacket as Program<Redpacket>;
-
-  splRedPacketCreateTime = new anchor.BN(Math.floor(Date.now() / 1000));
-
-  // splTokenAccounts.vault = vault;
-
-  // // First create red packets
-  // const splTokenRedPacketID = new anchor.BN(1);
-  // const splTokenRedPacket = PublicKey.findProgramAddressSync(
-  //   [redPacketCreator.publicKey, ],
-  //   redPacketProgram.programId
-  // )[0];
-
-  // const nativeTokenRedPacketID = new anchor.BN(2);
-  // const nativeTokenRedPacket = PublicKey.findProgramAddressSync(
-  //   [nativeTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-  //   redPacketProgram.programId
-  // )[0];
-
-  // const shortTimeSPLTokenRedPacketID = new anchor.BN(3);
-  // const shortTimeSPLTokenRedPacket = PublicKey.findProgramAddressSync(
-  //   [shortTimeSPLTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-  //   redPacketProgram.programId
-  // )[0];
-
-  // const shortTimeNativeTokenRedPacketID = new anchor.BN(4);
-  // const shortTimeNativeTokenRedPacket = PublicKey.findProgramAddressSync(
-  //   [shortTimeNativeTokenRedPacketID.toArrayLike(Buffer, "le", 8)],
-  //   redPacketProgram.programId
-  // )[0];
 
   // Add beforeAll if you need any setup before all tests
   before(async () => {
@@ -117,6 +86,13 @@ describe("redpacket", () => {
       1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL, pay for initialize the claimer token account
     );
     await confirmTransaction(connection, airdropSignatureClaimer);
+
+    // Airdrop some SOL to claimer
+    const airdropSignatureClaimer2 = await connection.requestAirdrop(
+      randomUser2.publicKey,
+      1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL, pay for initialize the claimer token account
+    );
+    await confirmTransaction(connection, airdropSignatureClaimer2);
   });
 
   it("create SPL token redpacket", async () => {
@@ -158,7 +134,8 @@ describe("redpacket", () => {
           redPacketTotalAmount,
           splRedPacketCreateTime,
           redPacketDuration,
-          false
+          false,
+          claimer_issuer.publicKey
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -257,7 +234,8 @@ describe("redpacket", () => {
         redPacketTotalAmount,
         nativeRedPacketCreateTime,
         redPacketDuration,
-        false // if_split_random
+        false, // if_split_random
+        claimer_issuer.publicKey
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -330,8 +308,34 @@ describe("redpacket", () => {
 
     // Verify vault matches
     expect(vaultAccount.toString()).to.equal(vault.toString());
-
+    //const signatureBuffer = Buffer.from(signature);
     try {
+      console.log("Random User Public Key:", randomUser.publicKey.toBase58());
+
+      // Generate the message
+      const message = Buffer.concat([
+        redPacket.toBytes(),
+        randomUser.publicKey.toBytes(),
+      ]);
+      console.log("Original message:", bs58.encode(message));
+
+      // Sign the message
+      const signature = nacl.sign.detached(message, claimer_issuer.secretKey);
+
+      const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
+        publicKey: claimer_issuer.publicKey.toBytes(),
+        message: message,
+        signature: signature,
+      });
+
+      // Verify signature before creating instruction
+      const verifyResult = nacl.sign.detached.verify(
+        message,
+        signature,
+        claimer_issuer.publicKey.toBytes()
+      );
+      console.log("Signature verification in TS:", verifyResult);
+
       const tx = await redPacketProgram.methods
         .claimWithSplToken()
         .accounts({
@@ -343,10 +347,12 @@ describe("redpacket", () => {
           tokenProgram: TOKEN_PROGRAM,
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: anchor.web3.SystemProgram.programId,
+          instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+          //rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
+        .preInstructions([ed25519Instruction])
         .signers([randomUser])
         .rpc();
-
       await provider.connection.confirmTransaction(tx);
     } catch (error) {
       console.error("Transaction failed:", error);
@@ -369,6 +375,88 @@ describe("redpacket", () => {
     expect(Number(claimerBalance.value.amount)).to.be.greaterThan(0);
   });
 
+  it("fail to claim spl red packet because of invalid signature", async () => {
+    // Re-derive the PDA
+    const redPacket = PublicKey.findProgramAddressSync(
+      [
+        redPacketCreator.publicKey.toBuffer(),
+        Buffer.from(splRedPacketCreateTime.toArray("le", 8)),
+      ],
+      redPacketProgram.programId
+    )[0];
+
+    // Get claimer's token account
+    const claimerTokenAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      randomUser2.publicKey,
+      true,
+      TOKEN_PROGRAM
+    );
+
+    // Get vault account
+    const vaultAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      redPacket,
+      true,
+      TOKEN_PROGRAM
+    );
+
+    //const signatureBuffer = Buffer.from(signature);
+    try {
+      console.log("Random User Public Key:", randomUser2.publicKey.toBase58());
+
+      // Generate the message
+      const message = Buffer.concat([
+        redPacket.toBytes(),
+        randomUser2.publicKey.toBytes(),
+      ]);
+      console.log("Original message:", bs58.encode(message));
+
+      // randomUser sign the message, so the signature is invalid
+      const signature = nacl.sign.detached(message, randomUser.secretKey);
+
+      const ed25519Instruction2 = Ed25519Program.createInstructionWithPublicKey(
+        {
+          publicKey: randomUser.publicKey.toBytes(),
+          message: message,
+          signature: signature,
+        }
+      );
+
+      // Verify signature before creating instruction
+      const verifyResult = nacl.sign.detached.verify(
+        message,
+        signature,
+        randomUser.publicKey.toBytes()
+      );
+      console.log("Signature verification in TS:", verifyResult);
+
+      const tx = await redPacketProgram.methods
+        .claimWithSplToken()
+        .accounts({
+          signer: randomUser2.publicKey,
+          redPacket,
+          tokenMint: tokenMint,
+          tokenAccount: claimerTokenAccount,
+          vault: vaultAccount,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
+        })
+        .preInstructions([ed25519Instruction2])
+        .signers([randomUser2])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidSignature");
+      expect(error.error.errorCode.number).to.equal(6009);
+    }
+  });
+
   it("claim native token red packet", async () => {
     // Re-derive the PDA
     const redPacket = PublicKey.findProgramAddressSync(
@@ -379,6 +467,22 @@ describe("redpacket", () => {
       redPacketProgram.programId
     )[0];
 
+    // Generate the message
+    const message = Buffer.concat([
+      redPacket.toBytes(),
+      randomUser.publicKey.toBytes(),
+    ]);
+    console.log("Original message:", bs58.encode(message));
+
+    // Sign the message
+    const signature = nacl.sign.detached(message, claimer_issuer.secretKey);
+
+    const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
+      publicKey: claimer_issuer.publicKey.toBytes(),
+      message: message,
+      signature: signature,
+    });
+
     const tx = await redPacketProgram.methods
       .claimWithNativeToken()
       .accounts({
@@ -386,6 +490,7 @@ describe("redpacket", () => {
         signer: randomUser.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
+      .preInstructions([ed25519Instruction])
       .signers([randomUser])
       .rpc();
     await provider.connection.confirmTransaction(tx);

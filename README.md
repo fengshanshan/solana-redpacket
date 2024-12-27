@@ -12,9 +12,10 @@ anchor test
 ## Todo List
 
 feature:
-- [x] red packet ID design (frontend generate(maybe failed) / rust code generate(storage cost, need to notify frontend, redPacket id))
-- [ ] claim red packet with signature issued by frontend
-- [ ] random amount red packet
+- [x] red packet ID design (seeds = [red_packet.creator.key().as_ref(), red_packet.create_time.to_le_bytes().as_ref()])
+- [x] claim red packet with signature issued by frontend
+- [x] random amount red packet
+- [ ] claim details record
 - [ ] upgrade program
 - [ ] bank run test and add more test cases
 - [ ] claimer can specify a recipient account instead of the claimer's account itself

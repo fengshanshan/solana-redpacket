@@ -1,31 +1,33 @@
 pub mod constants;
 pub mod transfer;
 
-use anchor_lang::{
-    prelude::*,
-    solana_program::hash::hash,
-};
+use anchor_lang::prelude::*;
+
 use anchor_spl::{
     associated_token::AssociatedToken,
     token_interface::{Mint, TokenAccount, TokenInterface},
 };
-//use ed25519_dalek::{PublicKey, Signature, Verifier};
+
+use solana_program::sysvar::instructions::{load_instruction_at_checked, load_current_index_checked};
+use solana_program::hash::hash;
+
 
 pub use constants::*;
 pub use transfer::*;
 
-declare_id!("4ezSV2k7oeZZnc6MoV33j56d73MSzBHUSYAttXCD5f2k");
+declare_id!("CXT16oAAbmgpPZsL2sGmfSUNrATk3AsFVU18thTUVNxx");
 
 
 #[program]
 pub mod redpacket {
     use super::*;
 
-    pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
+    pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
         // params check
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp;
+        
         // create time valid check
         // TODO:  maybe need to give a more reasonable time range   
         require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
@@ -49,12 +51,12 @@ pub mod redpacket {
             &ctx.accounts.token_program,
             signer_seeds
         )?;       
-        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random);
+        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random, pubkey_for_claim_signature);
 
         Ok(())
     }
 
-    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
+    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
         // params check
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
     
@@ -81,7 +83,7 @@ pub mod redpacket {
             ],
         )?;
 
-        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_NATIVE_TOKEN, Pubkey::default(), if_spilt_random);
+        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_NATIVE_TOKEN, Pubkey::default(), if_spilt_random, pubkey_for_claim_signature);
 
         Ok(())
 
@@ -97,7 +99,7 @@ pub mod redpacket {
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
         
         // verify signature
-  //      require!(verify_signature(red_packet.key(), ctx.accounts.signer.key(), &signature), CustomError::InvalidSignature);
+        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), red_packet.pubkey_for_claim_signature.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
         
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
 
@@ -135,7 +137,9 @@ pub mod redpacket {
         require!(current_time < expiry, CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
-     
+
+        // verify signature
+        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), red_packet.pubkey_for_claim_signature.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
         
         // check if the claim amount is valid
@@ -204,7 +208,7 @@ pub mod redpacket {
 
 
 #[derive(Accounts)]
-#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool)] 
+#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey)] 
 pub struct CreateRedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -247,10 +251,10 @@ pub struct CreateRedPacketWithSPLToken<'info> {
 pub struct RedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
-    
+
     #[account(mut, seeds = [red_packet.creator.key().as_ref(), red_packet.create_time.to_le_bytes().as_ref()], bump)]
     pub red_packet: Account<'info, RedPacket>,
-
+  
     pub token_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
@@ -273,10 +277,18 @@ pub struct RedPacketWithSPLToken<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+    /// CHECK: follow the code 
+    /// https://github.com/GuidoDipietro/solana-ed25519-secp256k1-sig-verification/blob/master/programs/solana-ed25519-sig-verification/src/lib.rs
+    /// https://solana.stackexchange.com/questions/16487/about-verify-signature-with-ed25519-issue?rq=1
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
+    /// CHECK: Ed25519Program ID is checked in constraint
+    #[account(address = anchor_lang::solana_program::ed25519_program::ID)]
+    pub ed25519_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
-#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool)] 
+#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey)] 
 pub struct CreateRedPacketWithNativeToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -296,6 +308,26 @@ pub struct RedPacketWithNativeToken<'info> {
     pub red_packet: Account<'info, RedPacket>,
 
     pub system_program: Program<'info, System>,
+    /// CHECK: follow the code 
+    /// https://github.com/GuidoDipietro/solana-ed25519-secp256k1-sig-verification/blob/master/programs/solana-ed25519-sig-verification/src/lib.rs
+    /// https://solana.stackexchange.com/questions/16487/about-verify-signature-with-ed25519-issue?rq=1
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
+    /// CHECK: Ed25519Program ID is checked in constraint
+    #[account(address = anchor_lang::solana_program::ed25519_program::ID)]
+    pub ed25519_program: UncheckedAccount<'info>,
+}
+
+
+#[derive(AnchorSerialize, AnchorDeserialize)]
+struct Ed25519SignatureOffsets {
+    signature_offset: u16,             // offset to ed25519 signature of 64 bytes
+    signature_instruction_index: u16,  // instruction index to find signature
+    public_key_offset: u16,            // offset to public key of 32 bytes
+    public_key_instruction_index: u16, // instruction index to find public key
+    message_data_offset: u16,          // offset to start of message data
+    message_data_size: u16,            // size of message data
+    message_instruction_index: u16,    // index of instruction data to get message data
 }
 
 #[account]
@@ -314,6 +346,7 @@ pub struct RedPacket {
     #[max_len(100)]
     pub claimed_users: Vec<Pubkey>, // Record of claimers
     pub withdraw_status: u8, // 0: not withdraw, 1: withdraw
+    pub pubkey_for_claim_signature: Pubkey, // Record of claimers' pubkey and claim amount
 }
 
 pub fn initialize_red_packet(
@@ -326,6 +359,7 @@ pub fn initialize_red_packet(
     token_type: u8,
     token_address: Pubkey,
     if_spilt_random: bool,
+    pubkey_for_claim_signature: Pubkey,
 ) {
     red_packet.set_inner(RedPacket {
         creator,
@@ -340,6 +374,7 @@ pub fn initialize_red_packet(
         if_spilt_random,
         claimed_users: vec![],
         withdraw_status: 0,
+        pubkey_for_claim_signature,
     });
 }
 
@@ -369,6 +404,56 @@ fn generate_random_number(redpacket_key: Pubkey, signer_key: Pubkey) -> u64 {
     let seed = format!("{}{}{}", redpacket_key, signer_key, current_timestamp);
     let hash_value = hash(seed.as_bytes()); 
     u64::from_le_bytes(hash_value.to_bytes()[0..8].try_into().unwrap())
+}
+
+pub fn verify_claim_signature(
+    instruction_sysvar: &AccountInfo,
+    red_packet_key: &[u8],
+    claimer_key: &[u8],
+    expected_public_key_arr: &[u8]
+) -> Result<()> {
+    let current_index = load_current_index_checked(instruction_sysvar)?;
+    if current_index == 0 {
+        msg!("fail to get instruction from current_index: {}", current_index);
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    let ed25519_instruction = load_instruction_at_checked((current_index - 1) as usize, instruction_sysvar)?;
+    
+    // Verify the content of the Ed25519 instruction
+    let instruction_data = ed25519_instruction.data;
+    if instruction_data.len() < 2 {
+        msg!("fail to get instruction_data from instruction: {}", instruction_data.len());
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    let num_signatures = instruction_data[0];
+    if num_signatures != 1 {
+        msg!("fail to get num_signatures from instruction: {}", num_signatures);
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    // Parse Ed25519SignatureOffsets
+    let offsets: Ed25519SignatureOffsets = Ed25519SignatureOffsets::try_from_slice(&instruction_data[2..16])?;
+
+    // Verify public key
+    let pubkey_start = offsets.public_key_offset as usize;
+    let pubkey_end = pubkey_start + 32;
+    if &instruction_data[pubkey_start..pubkey_end] != expected_public_key_arr {
+        msg!("fail to verify pubkey: {} ", pubkey_start);
+        msg!("fail to verify expected_public_key: {:?} ", expected_public_key_arr);
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    // Verify message
+    let expected_message = [red_packet_key, claimer_key].concat();
+    let msg_start = offsets.message_data_offset as usize;
+    let msg_end = msg_start + offsets.message_data_size as usize;
+    if &instruction_data[msg_start..msg_end] != expected_message {
+        return Err(error!(CustomError::InvalidSignature));
+    }
+
+    Ok(())
 }
 
 #[error_code]
