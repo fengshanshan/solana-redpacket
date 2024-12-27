@@ -11,10 +11,11 @@ use anchor_spl::{
 use solana_program::sysvar::instructions::{load_instruction_at_checked, load_current_index_checked};
 use solana_program::hash::hash;
 
+
 pub use constants::*;
 pub use transfer::*;
 
-declare_id!("mMUGmvLFcgJWtVFB5JsEkpNG1VxD2HFs4Bhre7V3VXc");
+declare_id!("CXT16oAAbmgpPZsL2sGmfSUNrATk3AsFVU18thTUVNxx");
 
 
 #[program]
@@ -136,7 +137,9 @@ pub mod redpacket {
         require!(current_time < expiry, CustomError::RedPacketExpired);
         require!(red_packet.claimed_number < red_packet.total_number, CustomError::RedPacketAllClaimed);
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
-     
+
+        // verify signature
+        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), constants::CLAIM_ISSUER_PUBLIC_KEY.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
         
         // check if the claim amount is valid
@@ -249,10 +252,6 @@ pub struct RedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
 
-    /// CHECK: for test
-    #[account(address = solana_program::sysvar::instructions::ID)]
-    pub instructions: AccountInfo<'info>,
-
     #[account(mut, seeds = [red_packet.creator.key().as_ref(), red_packet.create_time.to_le_bytes().as_ref()], bump)]
     pub red_packet: Account<'info, RedPacket>,
   
@@ -278,6 +277,11 @@ pub struct RedPacketWithSPLToken<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+    /// CHECK: follow the code 
+    /// https://github.com/GuidoDipietro/solana-ed25519-secp256k1-sig-verification/blob/master/programs/solana-ed25519-sig-verification/src/lib.rs
+    /// https://solana.stackexchange.com/questions/16487/about-verify-signature-with-ed25519-issue?rq=1
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
     /// CHECK: Ed25519Program ID is checked in constraint
     #[account(address = anchor_lang::solana_program::ed25519_program::ID)]
     pub ed25519_program: UncheckedAccount<'info>,
@@ -304,17 +308,26 @@ pub struct RedPacketWithNativeToken<'info> {
     pub red_packet: Account<'info, RedPacket>,
 
     pub system_program: Program<'info, System>,
+    /// CHECK: follow the code 
+    /// https://github.com/GuidoDipietro/solana-ed25519-secp256k1-sig-verification/blob/master/programs/solana-ed25519-sig-verification/src/lib.rs
+    /// https://solana.stackexchange.com/questions/16487/about-verify-signature-with-ed25519-issue?rq=1
+    #[account(address = solana_program::sysvar::instructions::ID)]
+    pub instructions: AccountInfo<'info>,
+    /// CHECK: Ed25519Program ID is checked in constraint
+    #[account(address = anchor_lang::solana_program::ed25519_program::ID)]
+    pub ed25519_program: UncheckedAccount<'info>,
 }
+
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 struct Ed25519SignatureOffsets {
-    signature_offset: u16,
-    signature_instruction_index: u16,
-    public_key_offset: u16,
-    public_key_instruction_index: u16,
-    message_data_offset: u16,
-    message_data_size: u16,
-    message_instruction_index: u16,
+    signature_offset: u16,             // offset to ed25519 signature of 64 bytes
+    signature_instruction_index: u16,  // instruction index to find signature
+    public_key_offset: u16,            // offset to public key of 32 bytes
+    public_key_instruction_index: u16, // instruction index to find public key
+    message_data_offset: u16,          // offset to start of message data
+    message_data_size: u16,            // size of message data
+    message_instruction_index: u16,    // index of instruction data to get message data
 }
 
 #[account]

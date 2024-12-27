@@ -4,16 +4,13 @@ import type { Redpacket } from "../target/types/redpacket";
 import {
   confirmTransaction,
   createAccountsMintsAndTokenAccounts,
+  getKeypairFromEnvironment,
 } from "@solana-developers/helpers";
 import {
   Ed25519Program,
   LAMPORTS_PER_SOL,
   PublicKey,
-  SystemProgram,
-  sendAndConfirmTransaction,
-  Transaction,
   SYSVAR_INSTRUCTIONS_PUBKEY,
-  TransactionInstruction,
   Keypair,
 } from "@solana/web3.js";
 import {
@@ -23,9 +20,9 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { assert, expect } from "chai";
+import "dotenv/config";
 
 import nacl from "tweetnacl";
-import { decodeUTF8 } from "tweetnacl-util";
 import bs58 from "bs58";
 
 // Work on both Token Program and new Token Extensions Program
@@ -34,14 +31,7 @@ const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
 
 const SECONDS = 1000;
 
-const claimer_issuer = Keypair.fromSecretKey(
-  Uint8Array.from([
-    205, 109, 125, 218, 30, 102, 240, 255, 205, 155, 43, 111, 173, 74, 190, 175,
-    30, 67, 65, 170, 38, 54, 163, 81, 14, 155, 110, 116, 254, 79, 113, 200, 57,
-    28, 105, 158, 21, 56, 254, 132, 224, 37, 197, 234, 181, 23, 16, 97, 133,
-    226, 84, 65, 190, 57, 125, 203, 242, 208, 70, 182, 250, 184, 93, 1,
-  ])
-);
+const claimer_issuer = getKeypairFromEnvironment("CLAIMER_ISSUER_SECRET_KEY");
 
 describe("redpacket", () => {
   // Configure the client to use the local cluster.
@@ -340,7 +330,7 @@ describe("redpacket", () => {
       const verifyResult = nacl.sign.detached.verify(
         message,
         signature,
-        randomUser.publicKey.toBytes()
+        claimer_issuer.publicKey.toBytes()
       );
       console.log("Signature verification in TS:", verifyResult);
 
@@ -356,7 +346,7 @@ describe("redpacket", () => {
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: anchor.web3.SystemProgram.programId,
           instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          //rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .preInstructions([ed25519Instruction])
         .signers([randomUser])
@@ -421,11 +411,11 @@ describe("redpacket", () => {
       console.log("Original message:", bs58.encode(message));
 
       // randomUser sign the message, so the signature is invalid
-      const signature = nacl.sign.detached(message, claimer_issuer.secretKey);
+      const signature = nacl.sign.detached(message, randomUser.secretKey);
 
       const ed25519Instruction2 = Ed25519Program.createInstructionWithPublicKey(
         {
-          publicKey: claimer_issuer.publicKey.toBytes(),
+          publicKey: randomUser.publicKey.toBytes(),
           message: message,
           signature: signature,
         }
@@ -435,7 +425,7 @@ describe("redpacket", () => {
       const verifyResult = nacl.sign.detached.verify(
         message,
         signature,
-        claimer_issuer.publicKey.toBytes()
+        randomUser.publicKey.toBytes()
       );
       console.log("Signature verification in TS:", verifyResult);
 
@@ -451,22 +441,17 @@ describe("redpacket", () => {
           associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
           systemProgram: anchor.web3.SystemProgram.programId,
           instructionSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
-          rent: anchor.web3.SYSVAR_RENT_PUBKEY,
         })
         .preInstructions([ed25519Instruction2])
         .signers([randomUser2])
         .rpc();
       await provider.connection.confirmTransaction(tx);
 
-      // If we reach here, the test should fail because we expected an error
-      //assert.fail("Expected transaction to fail with InvalidSignature error");
+      assert.fail("Expected transaction to fail with InvalidSignature error");
     } catch (error) {
-      console.error("Transaction failed:", error);
-      expect(error.errorCode).to.equal("InvalidSignature");
-      if (error.logs) {
-        console.log("Transaction logs:", error.logs);
-      }
-      throw error;
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidSignature");
+      expect(error.error.errorCode.number).to.equal(6009);
     }
   });
 
@@ -480,6 +465,22 @@ describe("redpacket", () => {
       redPacketProgram.programId
     )[0];
 
+    // Generate the message
+    const message = Buffer.concat([
+      redPacket.toBytes(),
+      randomUser.publicKey.toBytes(),
+    ]);
+    console.log("Original message:", bs58.encode(message));
+
+    // Sign the message
+    const signature = nacl.sign.detached(message, claimer_issuer.secretKey);
+
+    const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
+      publicKey: claimer_issuer.publicKey.toBytes(),
+      message: message,
+      signature: signature,
+    });
+
     const tx = await redPacketProgram.methods
       .claimWithNativeToken()
       .accounts({
@@ -487,6 +488,7 @@ describe("redpacket", () => {
         signer: randomUser.publicKey,
         systemProgram: anchor.web3.SystemProgram.programId,
       })
+      .preInstructions([ed25519Instruction])
       .signers([randomUser])
       .rpc();
     await provider.connection.confirmTransaction(tx);
