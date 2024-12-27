@@ -22,7 +22,7 @@ declare_id!("CXT16oAAbmgpPZsL2sGmfSUNrATk3AsFVU18thTUVNxx");
 pub mod redpacket {
     use super::*;
 
-    pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
+    pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
         // params check
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
         // time check
@@ -51,12 +51,12 @@ pub mod redpacket {
             &ctx.accounts.token_program,
             signer_seeds
         )?;       
-        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random);
+        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random, pubkey_for_claim_signature);
 
         Ok(())
     }
 
-    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool) -> Result<()> {
+    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
         // params check
         require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
     
@@ -83,7 +83,7 @@ pub mod redpacket {
             ],
         )?;
 
-        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_NATIVE_TOKEN, Pubkey::default(), if_spilt_random);
+        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_NATIVE_TOKEN, Pubkey::default(), if_spilt_random, pubkey_for_claim_signature);
 
         Ok(())
 
@@ -99,7 +99,7 @@ pub mod redpacket {
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
         
         // verify signature
-        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), constants::CLAIM_ISSUER_PUBLIC_KEY.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
+        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), red_packet.pubkey_for_claim_signature.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
         
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
 
@@ -139,7 +139,7 @@ pub mod redpacket {
         require!(!red_packet.claimed_users.contains(&ctx.accounts.signer.key()), CustomError::RedPacketClaimed);
 
         // verify signature
-        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), constants::CLAIM_ISSUER_PUBLIC_KEY.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
+        require!(verify_claim_signature(&ctx.accounts.instructions, red_packet.key().as_ref(), ctx.accounts.signer.key.as_ref(), red_packet.pubkey_for_claim_signature.to_bytes().as_ref()).is_ok(), CustomError::InvalidSignature);
         let claim_amount = calculate_claim_amount(&red_packet, ctx.accounts.signer.key());
         
         // check if the claim amount is valid
@@ -208,7 +208,7 @@ pub mod redpacket {
 
 
 #[derive(Accounts)]
-#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool)] 
+#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey)] 
 pub struct CreateRedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -288,7 +288,7 @@ pub struct RedPacketWithSPLToken<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool)] 
+#[instruction(total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey)] 
 pub struct CreateRedPacketWithNativeToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -346,6 +346,7 @@ pub struct RedPacket {
     #[max_len(100)]
     pub claimed_users: Vec<Pubkey>, // Record of claimers
     pub withdraw_status: u8, // 0: not withdraw, 1: withdraw
+    pub pubkey_for_claim_signature: Pubkey, // Record of claimers' pubkey and claim amount
 }
 
 pub fn initialize_red_packet(
@@ -358,6 +359,7 @@ pub fn initialize_red_packet(
     token_type: u8,
     token_address: Pubkey,
     if_spilt_random: bool,
+    pubkey_for_claim_signature: Pubkey,
 ) {
     red_packet.set_inner(RedPacket {
         creator,
@@ -372,6 +374,7 @@ pub fn initialize_red_packet(
         if_spilt_random,
         claimed_users: vec![],
         withdraw_status: 0,
+        pubkey_for_claim_signature,
     });
 }
 

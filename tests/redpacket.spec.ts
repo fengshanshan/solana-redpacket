@@ -134,7 +134,8 @@ describe("redpacket", () => {
           redPacketTotalAmount,
           splRedPacketCreateTime,
           redPacketDuration,
-          false
+          false,
+          claimer_issuer.publicKey
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -233,7 +234,8 @@ describe("redpacket", () => {
         redPacketTotalAmount,
         nativeRedPacketCreateTime,
         redPacketDuration,
-        false // if_split_random
+        false, // if_split_random
+        claimer_issuer.publicKey
       )
       .accounts({
         signer: redPacketCreator.publicKey,
