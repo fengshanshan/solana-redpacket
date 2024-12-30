@@ -125,9 +125,10 @@ pub mod redpacket {
         )?;
         
         red_packet.claimed_users.push(ctx.accounts.signer.key());
+        red_packet.claimed_amount_records.push(claim_amount);
         red_packet.claimed_number += 1;
         red_packet.claimed_amount += claim_amount;
-
+        
         Ok(())
     }
 
@@ -152,6 +153,7 @@ pub mod redpacket {
         **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? += claim_amount;
                
         red_packet.claimed_users.push(ctx.accounts.signer.key());
+        red_packet.claimed_amount_records.push(claim_amount);
         red_packet.claimed_number += 1;
         red_packet.claimed_amount += claim_amount;
 
@@ -347,6 +349,8 @@ pub struct RedPacket {
     pub if_spilt_random: bool,
     #[max_len(100)]
     pub claimed_users: Vec<Pubkey>, // Record of claimers
+    #[max_len(100)]
+    pub claimed_amount_records: Vec<u64>, // Record of claimers' amount
     pub withdraw_status: u8, // 0: not withdraw, 1: withdraw
     pub pubkey_for_claim_signature: Pubkey, // Record of claimers' pubkey and claim amount
 }
@@ -375,6 +379,7 @@ pub fn initialize_red_packet(
         token_address,
         if_spilt_random,
         claimed_users: vec![],
+        claimed_amount_records: vec![],
         withdraw_status: 0,
         pubkey_for_claim_signature,
     });
