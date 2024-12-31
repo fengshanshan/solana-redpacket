@@ -30,7 +30,7 @@ pub mod redpacket {
         
         // create time valid check
         // TODO:  maybe need to give a more reasonable time range   
-        require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
+        require!((_current_time - create_time as i64).abs() <= 60, CustomError::InvalidCreateTime);
         // expiry time valid
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
@@ -66,7 +66,7 @@ pub mod redpacket {
         let _current_time = Clock::get().unwrap().unix_timestamp;
         // create time valid check
         // TODO:  maybe need to give a more reasonable time range 
-        require!((_current_time - create_time as i64).abs() <= 2, CustomError::InvalidCreateTime);
+        require!((_current_time - create_time as i64).abs() <= 60, CustomError::InvalidCreateTime);
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
         require!(ctx.accounts.signer.lamports() >= total_amount, CustomError::InvalidTokenAmount);
