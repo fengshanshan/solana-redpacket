@@ -16,8 +16,9 @@ feature:
 - [x] claim red packet with signature issued by frontend
 - [x] split red packet with random amount 
 - [x] claim details record
-- [ ] upgrade program
-- [ ] bank run test and add more test cases
+- [x] upgrade program
+- [ ] add more test cases (in progress)
+- [ ] bank run test (with time travel)
 - [ ] cost report
 - [ ] claimer can specify a recipient account instead of the claimer's account itself
 - [ ] NFT red packet
