@@ -17,7 +17,10 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   type TOKEN_PROGRAM_ID,
+  createMint,
   getAssociatedTokenAddressSync,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
 } from "@solana/spl-token";
 import { assert, expect } from "chai";
 import "dotenv/config";
@@ -57,56 +60,113 @@ describe("redpacket", () => {
 
   // Add beforeAll if you need any setup before all tests
   before(async () => {
-    //Create users and mints
-    const usersMintsAndTokenAccounts =
-      await createAccountsMintsAndTokenAccounts(
-        [[100]],
-        1 * LAMPORTS_PER_SOL,
+    const isLocalnet =
+      provider.connection.rpcEndpoint.includes("localhost") ||
+      provider.connection.rpcEndpoint.includes("127.0.0.1");
+    console.log("RPC endpoint:", provider.connection.rpcEndpoint);
+    console.log("isLocalnet:", isLocalnet);
+
+    if (isLocalnet) {
+      //Create users and mints
+      const usersMintsAndTokenAccounts =
+        await createAccountsMintsAndTokenAccounts(
+          [[100 * LAMPORTS_PER_SOL]],
+          1 * LAMPORTS_PER_SOL,
+          connection,
+          signer
+        );
+
+      const tokenAccounts = usersMintsAndTokenAccounts.tokenAccounts;
+      const mints = usersMintsAndTokenAccounts.mints[0];
+
+      tokenMint = mints.publicKey;
+      tokenAccount = tokenAccounts[0][0];
+
+      const users = usersMintsAndTokenAccounts.users;
+      redPacketCreator = users[0];
+
+      // Airdrop some SOL to redPacketCreator
+      const airdropSignature = await connection.requestAirdrop(
+        redPacketCreator.publicKey,
+        5 * LAMPORTS_PER_SOL // This will airdrop 1 SOL
+      );
+      await confirmTransaction(connection, airdropSignature);
+
+      // Airdrop some SOL to claimer
+      const airdropSignatureClaimer = await connection.requestAirdrop(
+        randomUser.publicKey,
+        1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL, pay for initialize the claimer token account
+      );
+      await confirmTransaction(connection, airdropSignatureClaimer);
+
+      // Airdrop some SOL to claimer
+      const airdropSignatureClaimer2 = await connection.requestAirdrop(
+        randomUser2.publicKey,
+        1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL, pay for initialize the claimer token account
+      );
+      await confirmTransaction(connection, airdropSignatureClaimer2);
+    } else {
+      redPacketCreator = getKeypairFromEnvironment("CREATOR");
+      console.log("redPacketCreator:", redPacketCreator.publicKey.toString());
+
+      // Create mint
+      tokenMint = await createMint(
         connection,
-        signer
+        signer, // payer
+        redPacketCreator.publicKey, // mintAuthority
+        null, // freezeAuthority (you can use null)
+        9, // decimals
+        undefined,
+        undefined,
+        TOKEN_PROGRAM
       );
 
-    const tokenAccounts = usersMintsAndTokenAccounts.tokenAccounts;
-    const mints = usersMintsAndTokenAccounts.mints[0];
+      // Create token account for redPacketCreator
+      const tokenAccountInfo = await getOrCreateAssociatedTokenAccount(
+        connection,
+        signer,
+        tokenMint,
+        redPacketCreator.publicKey,
+        false,
+        undefined,
+        undefined,
+        TOKEN_PROGRAM
+      );
+      tokenAccount = tokenAccountInfo.address;
 
-    tokenMint = mints.publicKey;
-    tokenAccount = tokenAccounts[0][0];
+      // Mint some tokens to redPacketCreator's token account
+      await mintTo(
+        connection,
+        redPacketCreator,
+        tokenMint,
+        tokenAccount,
+        redPacketCreator, // mint authority
+        100 * LAMPORTS_PER_SOL, // amount
+        [],
+        undefined,
+        TOKEN_PROGRAM
+      );
 
-    const users = usersMintsAndTokenAccounts.users;
-    redPacketCreator = users[0];
-
-    // Airdrop some SOL to redPacketCreator
-    const airdropSignature = await connection.requestAirdrop(
-      redPacketCreator.publicKey,
-      5 * LAMPORTS_PER_SOL // This will airdrop 1 SOL
-    );
-    await confirmTransaction(connection, airdropSignature);
-
-    // Airdrop some SOL to claimer
-    const airdropSignatureClaimer = await connection.requestAirdrop(
-      randomUser.publicKey,
-      1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL, pay for initialize the claimer token account
-    );
-    await confirmTransaction(connection, airdropSignatureClaimer);
-
-    // Airdrop some SOL to claimer
-    const airdropSignatureClaimer2 = await connection.requestAirdrop(
-      randomUser2.publicKey,
-      1 * LAMPORTS_PER_SOL // This will airdrop 1 SOL, pay for initialize the claimer token account
-    );
-    await confirmTransaction(connection, airdropSignatureClaimer2);
+      console.log("Setup complete:");
+      console.log("Token Mint:", tokenMint.toBase58());
+      console.log("Token Account:", tokenAccount.toBase58());
+    }
   });
 
   it("create SPL token redpacket", async () => {
     const creatorTokenBalanceBefore = await connection.getTokenAccountBalance(
       tokenAccount
     );
+    const creatorTokenBalanceBeforeValue = new anchor.BN(
+      creatorTokenBalanceBefore.value.amount
+    );
     console.log(
       "In test case token account  balance",
-      creatorTokenBalanceBefore.value.amount
+      creatorTokenBalanceBeforeValue.toString()
     );
 
     splRedPacketCreateTime = new anchor.BN(Math.floor(Date.now() / 1000));
+
     splTokenRedPacket = PublicKey.findProgramAddressSync(
       [
         redPacketCreator.publicKey.toBuffer(),
@@ -126,7 +186,7 @@ describe("redpacket", () => {
     );
 
     const redPacketTotalNumber = new anchor.BN(3);
-    const redPacketTotalAmount = new anchor.BN(3);
+    const redPacketTotalAmount = new anchor.BN(4 * LAMPORTS_PER_SOL);
     const redPacketDuration = new anchor.BN(7 * 60 * 60 * 24);
 
     try {
@@ -171,8 +231,10 @@ describe("redpacket", () => {
     const creatorTokenBalanceAfter = await connection.getTokenAccountBalance(
       tokenAccount
     );
-    expect(vaultBalance.toString()).equal("3");
-    expect(creatorTokenBalanceAfter.value.amount).equal("97");
+    expect(vaultBalance.toString()).equal(redPacketTotalAmount.toString());
+    expect(creatorTokenBalanceAfter.value.amount).equal(
+      creatorTokenBalanceBeforeValue.sub(vaultBalance).toString()
+    );
 
     // Check red packet
     const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
@@ -213,8 +275,9 @@ describe("redpacket", () => {
     const redPacketDuration = new anchor.BN(1000 * 60 * 60 * 24);
     const redPacketTotalNumber = new anchor.BN(3);
     const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
-
-    nativeRedPacketCreateTime = splRedPacketCreateTime.add(new anchor.BN(1));
+    nativeRedPacketCreateTime = new anchor.BN(
+      Math.floor(Date.now() / 1000) + 3
+    );
 
     nativeTokenRedPacket = PublicKey.findProgramAddressSync(
       [
@@ -223,6 +286,13 @@ describe("redpacket", () => {
       ],
       redPacketProgram.programId
     )[0];
+
+    console.log(
+      "nativeRedPacketCreateTime:",
+      nativeRedPacketCreateTime.toString()
+    );
+
+    console.log("nativeTokenRedPacket:", nativeTokenRedPacket.toString());
 
     const tx = await redPacketProgram.methods
       .createRedPacketWithNativeToken(
@@ -246,6 +316,10 @@ describe("redpacket", () => {
     //Check red packet
     const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
       nativeTokenRedPacket
+    );
+    console.log(
+      "redPacketAccount Creator:",
+      redPacketAccount.creator.toString()
     );
     expect(redPacketAccount.totalNumber.toString()).equal(
       redPacketTotalNumber.toString()
@@ -441,7 +515,6 @@ describe("redpacket", () => {
       // Verify we got the expected error
       console.log("catch error part");
       expect(error.error.errorCode.code).to.equal("InvalidSignature");
-      expect(error.error.errorCode.number).to.equal(6009);
     }
   });
 
@@ -533,12 +606,14 @@ describe("redpacket", () => {
       .rpc();
 
     await provider.connection.confirmTransaction(withdrawTx);
-    console.log(withdrawTx);
 
-    const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
-      redPacket
-    );
-    expect(redPacketAccount.withdrawStatus).equal(1);
+    // Verify the account is closed
+    try {
+      await redPacketProgram.account.redPacket.fetch(redPacket);
+      assert.fail("Expected account to be closed");
+    } catch (error) {
+      expect(error.message).to.include("Account does not exist");
+    }
   });
 
   it("withdraw native token red packet", async () => {
@@ -563,15 +638,14 @@ describe("redpacket", () => {
 
     await provider.connection.confirmTransaction(withdrawTx);
     await getLogs(withdrawTx);
-    //Check red packet
-    const redPacketAccount = await redPacketProgram.account.redPacket.fetch(
-      redPacket
-    );
-    expect(redPacketAccount.withdrawStatus).equal(1);
-    const creatorBalanceAfter = await connection.getBalance(
-      redPacketCreator.publicKey
-    );
-    console.log("creatorBalanceAfter", creatorBalanceAfter);
+
+    // Verify the account is closed
+    try {
+      await redPacketProgram.account.redPacket.fetch(redPacket);
+      assert.fail("Expected account to be closed");
+    } catch (error) {
+      expect(error.message).to.include("Account does not exist");
+    }
   });
 });
 

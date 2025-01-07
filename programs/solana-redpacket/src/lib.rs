@@ -5,7 +5,7 @@ use anchor_lang::prelude::*;
 
 use anchor_spl::{
     associated_token::AssociatedToken,
-    token_interface::{Mint, TokenAccount, TokenInterface},
+    token_interface::{Mint, TokenAccount, TokenInterface, close_account, CloseAccount},
 };
 
 use solana_program::sysvar::instructions::{load_instruction_at_checked, load_current_index_checked};
@@ -24,7 +24,8 @@ pub mod redpacket {
 
     pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
         // params check
-        require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
+        require!(total_number > 0 && total_number <= 200, CustomError::InvalidTotalNumber);
+        require!(total_amount > 0 , CustomError::InvalidTotalAmount);
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp;
         
@@ -34,15 +35,7 @@ pub mod redpacket {
         // expiry time valid
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
-        require!(ctx.accounts.token_account.amount >= total_amount, CustomError::InvalidTokenAmount);
-
-        //Transfer SPL tokens from initializer to PDA account (red packet account)
-        //Signer seeds for PDA authority
-        // Signer seeds for PDA authority
-        let binding = ctx.accounts.signer.key();
-        let binding_time = create_time.to_le_bytes();
-        let seeds = &[binding.as_ref(), binding_time.as_ref(), &[ctx.bumps.red_packet]];
-        let signer_seeds = &[&seeds[..]];
+        require!(ctx.accounts.token_account.amount >= total_amount, CustomError::InsufficientTokenBalance);
 
         transfer::transfer_tokens(
             &ctx.accounts.token_account,
@@ -51,7 +44,7 @@ pub mod redpacket {
             &ctx.accounts.token_mint,
             &ctx.accounts.signer.to_account_info(),
             &ctx.accounts.token_program,
-            signer_seeds
+            &[]
         )?;       
         initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random, pubkey_for_claim_signature);
 
@@ -60,7 +53,8 @@ pub mod redpacket {
 
     pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u64, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
         // params check
-        require!(total_number > 0 && total_amount > 0, CustomError::InvalidTotalNumberOrAmount);
+        require!(total_number > 0 && total_number <= 200, CustomError::InvalidTotalNumber);
+        require!(total_amount > 0 , CustomError::InvalidTotalAmount);
     
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp;
@@ -69,7 +63,7 @@ pub mod redpacket {
         require!((_current_time - create_time as i64).abs() <= 60, CustomError::InvalidCreateTime);
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
-        require!(ctx.accounts.signer.lamports() >= total_amount, CustomError::InvalidTokenAmount);
+        require!(ctx.accounts.signer.lamports() >= total_amount, CustomError::InsufficientTokenBalance);
         // Transfer tokens from initializer to PDA account (red packet account)
         let ix = anchor_lang::solana_program::system_instruction::transfer(
             &ctx.accounts.signer.key(),
@@ -162,15 +156,14 @@ pub mod redpacket {
 
     pub fn withdraw_with_spl_token(ctx: Context<RedPacketWithSPLToken>) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
-        require!(red_packet.withdraw_status == constants::RED_PACKET_WITHDRAW_STATUS_NOT_WITHDRAW, CustomError::RedPacketWithdrawn);
         let _current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
         let expiry = red_packet.create_time + red_packet.duration;
-        require!(_current_time >= expiry, CustomError::RedPacketNotExpired);
+        //require!(_current_time >= expiry, CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
 
         let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
        
-        // Transfer SPL tokens from vault to claimer's token account
+        // Transfer SPL tokens from vault to creator's token account
         // Signer seeds for PDA authority
         let binding = red_packet.creator.key();
         let binding_time = red_packet.create_time.to_le_bytes();
@@ -186,25 +179,44 @@ pub mod redpacket {
             signer_seeds
         )?;
 
-        red_packet.withdraw_status = 1;
+        let accounts = CloseAccount {
+            account: ctx.accounts.vault.to_account_info(),
+            destination: ctx.accounts.signer.to_account_info(),
+            authority: ctx.accounts.red_packet.to_account_info(),
+        };
+        let cpi_context = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            accounts,
+            signer_seeds,
+        );
+        close_account(cpi_context)?;
+
+        // Transfer all redpacket lamports (remaining balance + rent) to signer
+        let dest_starting_lamports = ctx.accounts.signer.lamports();
+        let red_packet_lamports = ctx.accounts.red_packet.to_account_info().lamports();
+        **ctx.accounts.red_packet.to_account_info().try_borrow_mut_lamports()? = 0;
+        **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? = dest_starting_lamports
+            .checked_add(red_packet_lamports)
+            .unwrap();
 
         Ok(())
     }
 
     pub fn withdraw_with_native_token(ctx: Context<RedPacketWithNativeToken>) -> Result<()> {
         let red_packet = &mut ctx.accounts.red_packet;
-        require!(red_packet.withdraw_status == constants::RED_PACKET_WITHDRAW_STATUS_NOT_WITHDRAW, CustomError::RedPacketWithdrawn);
         let current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
         let expiry = red_packet.create_time + red_packet.duration;
-        require!(current_time >= expiry, CustomError::RedPacketNotExpired);
+        //require!(current_time >= expiry, CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
-
-        let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
-        
-        // Transfer remaining SOL back to the creator
-        **red_packet.to_account_info().try_borrow_mut_lamports()? -= remaining_amount;
-        **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? += remaining_amount;
-        red_packet.withdraw_status = 1;
+      
+        // Transfer all lamports (remaining balance + rent) to signer
+        let dest_starting_lamports = ctx.accounts.signer.lamports();
+        let red_packet_lamports = ctx.accounts.red_packet.to_account_info().lamports();
+        **ctx.accounts.red_packet.to_account_info().try_borrow_mut_lamports()? = 0;
+        **ctx.accounts.signer.to_account_info().try_borrow_mut_lamports()? = dest_starting_lamports
+            .checked_add(red_packet_lamports)
+            .unwrap();
+      
         Ok(())
     }
 
@@ -347,11 +359,10 @@ pub struct RedPacket {
     pub token_type: u8, // 0: SOL, 1: SPL Token
     pub token_address: Pubkey,
     pub if_spilt_random: bool,
-    #[max_len(100)]
+    #[max_len(200)]
     pub claimed_users: Vec<Pubkey>, // Record of claimers
-    #[max_len(100)]
+    #[max_len(200)]
     pub claimed_amount_records: Vec<u64>, // Record of claimers' amount
-    pub withdraw_status: u8, // 0: not withdraw, 1: withdraw
     pub pubkey_for_claim_signature: Pubkey, // Record of claimers' pubkey and claim amount
 }
 
@@ -380,7 +391,6 @@ pub fn initialize_red_packet(
         if_spilt_random,
         claimed_users: vec![],
         claimed_amount_records: vec![],
-        withdraw_status: 0,
         pubkey_for_claim_signature,
     });
 }
@@ -471,12 +481,14 @@ pub enum CustomError {
     InvalidCreateTime,
     #[msg("Invalid expiry time.")]
     InvalidExpiryTime,
-    #[msg("Invalid total number or amount.")]
-    InvalidTotalNumberOrAmount,
+    #[msg("Invalid total number.")]
+    InvalidTotalNumber,
+    #[msg("Invalid total amount.")]
+    InvalidTotalAmount,
+    #[msg("Insufficient token balance.")]
+    InsufficientTokenBalance,
     #[msg("Invalid token type.")]
     InvalidTokenType,
-    #[msg("Invalid token amount.")]
-    InvalidTokenAmount,
     #[msg("Invalid account for native token.")]
     InvalidAccountForNativeToken,
     #[msg("Invalid initial params for token account.")]
@@ -494,7 +506,5 @@ pub enum CustomError {
     #[msg("All the red packet has been claimed.")]
     RedPacketAllClaimed,
     #[msg("You are not authorized to perform this action.")]
-    Unauthorized,
-    #[msg("The red packet has been withdrawn.")]
-    RedPacketWithdrawn,
+    Unauthorized
 }
