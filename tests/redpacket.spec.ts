@@ -434,7 +434,7 @@ describe("redpacket", () => {
       claimerTokenAccount
     );
     expect(Number(claimerBalanceAfter.value.amount)).to.be.greaterThan(0);
-    console.log(claimerBalanceAfter.value.amount);
+
     expect(redPacketAccount.claimedAmountRecords[0].toString()).to.equal(
       claimerBalanceAfter.value.amount
     );
