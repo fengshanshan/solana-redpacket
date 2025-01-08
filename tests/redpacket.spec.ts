@@ -181,7 +181,7 @@ describe("redpacket", () => {
       TOKEN_PROGRAM
     );
 
-    const redPacketTotalNumber = new anchor.BN(3);
+    const redPacketTotalNumber = 3;
     const redPacketTotalAmount = new anchor.BN(4 * LAMPORTS_PER_SOL);
     const redPacketDuration = new anchor.BN(7 * 60 * 60 * 24);
 
@@ -269,7 +269,7 @@ describe("redpacket", () => {
 
   it("create native token redpacket", async () => {
     const redPacketDuration = new anchor.BN(1000 * 60 * 60 * 24);
-    const redPacketTotalNumber = new anchor.BN(3);
+    const redPacketTotalNumber = 3;
     const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
     nativeRedPacketCreateTime = new anchor.BN(
       Math.floor(Date.now() / 1000) + 3
@@ -595,7 +595,7 @@ describe("redpacket", () => {
       TOKEN_PROGRAM
     );
     const redPacketDuration = new anchor.BN(60 * 60 * 24);
-    const redPacketTotalNumber = new anchor.BN(3);
+    const redPacketTotalNumber = 3;
     const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
 
     const tx = await redPacketProgram.methods
@@ -771,7 +771,7 @@ describe("redpacket", () => {
       redPacketProgram.programId
     )[0];
     const redPacketDuration = new anchor.BN(60 * 60 * 24);
-    const redPacketTotalNumber = new anchor.BN(3);
+    const redPacketTotalNumber = 3;
     const redPacketTotalAmount = new anchor.BN(3 * LAMPORTS_PER_SOL);
 
     const tx = await redPacketProgram.methods
