@@ -32,8 +32,6 @@ import bs58 from "bs58";
 const TOKEN_PROGRAM: typeof TOKEN_2022_PROGRAM_ID | typeof TOKEN_PROGRAM_ID =
   TOKEN_2022_PROGRAM_ID;
 
-const SECONDS = 1000;
-
 const claimer_issuer = getKeypairFromEnvironment("CLAIMER_ISSUER_SECRET_KEY");
 const randomUser = getKeypairFromEnvironment("RANDOM_KEY_1");
 const randomUser2 = getKeypairFromEnvironment("RANDOM_KEY_2");
@@ -44,8 +42,6 @@ describe("redpacket", () => {
   anchor.setProvider(provider);
   const connection = provider.connection;
   const signer = (provider.wallet as anchor.Wallet).payer;
-  // const randomUser = anchor.web3.Keypair.generate();
-  // const randomUser2 = anchor.web3.Keypair.generate();
 
   let redPacketCreator: anchor.web3.Keypair;
   let splTokenRedPacket: PublicKey;
@@ -147,9 +143,9 @@ describe("redpacket", () => {
         TOKEN_PROGRAM
       );
 
-      console.log("Setup complete:");
+      console.log("Setup complete");
       console.log("Token Mint:", tokenMint.toBase58());
-      console.log("Token Account:", tokenAccount.toBase58());
+      console.log("Creator Token Account:", tokenAccount.toBase58());
     }
   });
 
@@ -161,7 +157,7 @@ describe("redpacket", () => {
       creatorTokenBalanceBefore.value.amount
     );
     console.log(
-      "In test case token account  balance",
+      "In test, creator token account  balance",
       creatorTokenBalanceBeforeValue.toString()
     );
 
@@ -709,7 +705,7 @@ describe("redpacket", () => {
       .preInstructions([ed25519Instruction2])
       .signers([randomUser2])
       .rpc();
-    await provider.connection.confirmTransaction(claimTx);
+    await provider.connection.confirmTransaction(claimTx2);
     // Generate the message
     const message3 = Buffer.concat([
       redPacket.toBytes(),
@@ -740,7 +736,7 @@ describe("redpacket", () => {
       .preInstructions([ed25519Instruction3])
       .signers([redPacketCreator])
       .rpc();
-    await provider.connection.confirmTransaction(claimTx);
+    await provider.connection.confirmTransaction(claimTx3);
 
     const redPacketAccountAfter =
       await redPacketProgram.account.redPacket.fetch(redPacket);

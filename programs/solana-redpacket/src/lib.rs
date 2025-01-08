@@ -26,15 +26,12 @@ pub mod redpacket {
         // params check
         require!(total_number > 0 && total_number <= 200, CustomError::InvalidTotalNumber);
         require!(total_amount > 0 , CustomError::InvalidTotalAmount);
-        // time check
-        let _current_time = Clock::get().unwrap().unix_timestamp;
         
-        // create time valid check
-        // TODO:  maybe need to give a more reasonable time range   
-        require!((_current_time - create_time as i64).abs() <= 60, CustomError::InvalidCreateTime);
-        // expiry time valid
+        // time check
+        let _current_time = Clock::get().unwrap().unix_timestamp; 
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
+        // check if the creator has enough tokens
         require!(ctx.accounts.token_account.amount >= total_amount, CustomError::InsufficientTokenBalance);
 
         transfer::transfer_tokens(
@@ -58,9 +55,6 @@ pub mod redpacket {
     
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp;
-        // create time valid check
-        // TODO:  maybe need to give a more reasonable time range 
-        require!((_current_time - create_time as i64).abs() <= 60, CustomError::InvalidCreateTime);
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
         require!(ctx.accounts.signer.lamports() >= total_amount, CustomError::InsufficientTokenBalance);
@@ -158,7 +152,7 @@ pub mod redpacket {
         let red_packet = &mut ctx.accounts.red_packet;
         let _current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
         let expiry = red_packet.create_time + red_packet.duration;
-        require!(_current_time >= expiry, CustomError::RedPacketNotExpired);
+        //require!(_current_time >= expiry, CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
 
         let remaining_amount = red_packet.total_amount - red_packet.claimed_amount;
@@ -206,7 +200,7 @@ pub mod redpacket {
         let red_packet = &mut ctx.accounts.red_packet;
         let current_time: u64 = Clock::get()?.unix_timestamp.try_into().unwrap();
         let expiry = red_packet.create_time + red_packet.duration;
-        require!(current_time >= expiry, CustomError::RedPacketNotExpired);
+        //require!(current_time >= expiry, CustomError::RedPacketNotExpired);
         require!(red_packet.creator == *ctx.accounts.signer.key, CustomError::Unauthorized);
       
         // Transfer all lamports (remaining balance + rent) to signer
