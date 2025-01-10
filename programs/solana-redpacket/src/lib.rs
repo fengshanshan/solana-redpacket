@@ -22,13 +22,14 @@ declare_id!("CXT16oAAbmgpPZsL2sGmfSUNrATk3AsFVU18thTUVNxx");
 pub mod redpacket {
     use super::*;
 
-    pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u8, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
+    pub fn create_red_packet_with_spl_token(ctx: Context<CreateRedPacketWithSPLToken>, total_number: u8, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey, name: String, message: String) -> Result<()> {
         // params check
         require!(total_number > 0 && total_number <= 200, CustomError::InvalidTotalNumber);
         require!(total_amount > 0 , CustomError::InvalidTotalAmount);
         
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp; 
+        require!(_current_time.abs_diff(create_time as i64) < 120, CustomError::InvalidCreateTime);
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
         // check if the creator has enough tokens
@@ -43,18 +44,19 @@ pub mod redpacket {
             &ctx.accounts.token_program,
             &[]
         )?;       
-        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random, pubkey_for_claim_signature);
+        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_CUSTOM_TOKEN, ctx.accounts.token_mint.key(), if_spilt_random, pubkey_for_claim_signature, name, message);
 
         Ok(())
     }
 
-    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u8, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey) -> Result<()> {
+    pub fn create_red_packet_with_native_token(ctx: Context<CreateRedPacketWithNativeToken>, total_number: u8, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey, name: String, message: String) -> Result<()> {
         // params check
         require!(total_number > 0 && total_number <= 200, CustomError::InvalidTotalNumber);
         require!(total_amount > 0 , CustomError::InvalidTotalAmount);
     
         // time check
         let _current_time = Clock::get().unwrap().unix_timestamp;
+        require!(_current_time.abs_diff(create_time as i64) < 120, CustomError::InvalidCreateTime);
         require!(create_time + duration > _current_time as u64, CustomError::InvalidExpiryTime);
 
         require!(ctx.accounts.signer.lamports() >= total_amount, CustomError::InsufficientTokenBalance);
@@ -73,7 +75,7 @@ pub mod redpacket {
             ],
         )?;
 
-        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_NATIVE_TOKEN, Pubkey::default(), if_spilt_random, pubkey_for_claim_signature);
+        initialize_red_packet(&mut ctx.accounts.red_packet, *ctx.accounts.signer.key, total_number, total_amount, create_time, duration, constants::RED_PACKET_USE_NATIVE_TOKEN, Pubkey::default(), if_spilt_random, pubkey_for_claim_signature, name, message);
 
         Ok(())
 
@@ -218,7 +220,7 @@ pub mod redpacket {
 
 
 #[derive(Accounts)]
-#[instruction(total_number: u8, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey)] 
+#[instruction(total_number: u8, total_amount: u64, create_time: u64)] 
 pub struct CreateRedPacketWithSPLToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -298,7 +300,7 @@ pub struct RedPacketWithSPLToken<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(total_number: u8, total_amount: u64, create_time: u64, duration: u64, if_spilt_random: bool, pubkey_for_claim_signature: Pubkey)] 
+#[instruction(total_number: u8, total_amount: u64, create_time: u64)] 
 pub struct CreateRedPacketWithNativeToken<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -358,6 +360,10 @@ pub struct RedPacket {
     #[max_len(200)]
     pub claimed_amount_records: Vec<u64>, // Record of claimers' amount
     pub pubkey_for_claim_signature: Pubkey, // Record of claimers' pubkey and claim amount
+    #[max_len(100)]
+    pub name: String,
+    #[max_len(200)]
+    pub message: String,
 }
 
 pub fn initialize_red_packet(
@@ -371,6 +377,8 @@ pub fn initialize_red_packet(
     token_address: Pubkey,
     if_spilt_random: bool,
     pubkey_for_claim_signature: Pubkey,
+    name: String,
+    message: String,
 ) {
     red_packet.set_inner(RedPacket {
         creator,
@@ -386,6 +394,8 @@ pub fn initialize_red_packet(
         claimed_users: vec![],
         claimed_amount_records: vec![],
         pubkey_for_claim_signature,
+        name,
+        message,
     });
 }
 

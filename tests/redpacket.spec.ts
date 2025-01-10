@@ -53,8 +53,9 @@ describe("redpacket", () => {
   let tokenAccount: PublicKey;
 
   const redPacketProgram = anchor.workspace.Redpacket as Program<Redpacket>;
+  //redPacketCreator = getKeypairFromEnvironment("CREATOR");
 
-  // Add beforeAll if you need any setup before all tests
+  //Add beforeAll if you need any setup before all tests
   before(async () => {
     const isLocalnet =
       provider.connection.rpcEndpoint.includes("localhost") ||
@@ -193,7 +194,9 @@ describe("redpacket", () => {
           splRedPacketCreateTime,
           redPacketDuration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "my first spl red packet",
+          "my first spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -297,7 +300,9 @@ describe("redpacket", () => {
         nativeRedPacketCreateTime,
         redPacketDuration,
         false, // if_split_random
-        claimer_issuer.publicKey
+        claimer_issuer.publicKey,
+        "my first native red packet",
+        "my first native red packet"
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -307,6 +312,7 @@ describe("redpacket", () => {
       .signers([redPacketCreator])
       .rpc();
     await provider.connection.confirmTransaction(tx);
+    await getLogs(tx);
     // Fetch and verify the created red packet account
 
     //Check red packet
@@ -605,7 +611,9 @@ describe("redpacket", () => {
         splRandomRedPacketCreateTime,
         redPacketDuration,
         true, // if_split_random
-        claimer_issuer.publicKey
+        claimer_issuer.publicKey,
+        "my first random amount spl red packet",
+        "my first random amount spl red packet"
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -781,7 +789,9 @@ describe("redpacket", () => {
         nativeRandomRedPacketCreateTime,
         redPacketDuration,
         true, // if_split_random
-        claimer_issuer.publicKey
+        claimer_issuer.publicKey,
+        "中文红包",
+        "中文红包测试"
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -967,6 +977,342 @@ describe("redpacket", () => {
       assert.fail("Expected account to be closed");
     } catch (error) {
       expect(error.message).to.include("Account does not exist");
+    }
+  });
+
+  it("fail to create spl red packet with invalid parameters", async () => {
+    // Re-derive the PDA
+    const createTime = new anchor.BN(Math.floor(Date.now() / 1000) - 100);
+    const redPacket = PublicKey.findProgramAddressSync(
+      [
+        redPacketCreator.publicKey.toBuffer(),
+        Buffer.from(createTime.toArray("le", 8)),
+      ],
+      redPacketProgram.programId
+    )[0];
+
+    // Get vault account
+    const vaultAccount = getAssociatedTokenAddressSync(
+      tokenMint,
+      redPacket,
+      true,
+      TOKEN_PROGRAM
+    );
+    const duration = new anchor.BN(200);
+    const totalNumber = 1;
+    const totalAmount = new anchor.BN(1 * LAMPORTS_PER_SOL);
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithSplToken(
+          totalNumber,
+          totalAmount,
+          createTime,
+          duration.sub(new anchor.BN(110)),
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          tokenMint: tokenMint,
+          tokenAccount: tokenAccount,
+          vault: vaultAccount,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      console.log("catch error part");
+      expect(error.error.errorCode.code).to.equal("InvalidExpiryTime");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithSplToken(
+          0,
+          totalAmount,
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          tokenMint: tokenMint,
+          tokenAccount: tokenAccount,
+          vault: vaultAccount,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidTotalNumber");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithSplToken(
+          201,
+          totalAmount,
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          tokenMint: tokenMint,
+          tokenAccount: tokenAccount,
+          vault: vaultAccount,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidTotalNumber");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithSplToken(
+          totalNumber,
+          new anchor.BN(0),
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          tokenMint: tokenMint,
+          tokenAccount: tokenAccount,
+          vault: vaultAccount,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidTotalAmount");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithSplToken(
+          totalNumber,
+          new anchor.BN(1000 * LAMPORTS_PER_SOL),
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          tokenMint: tokenMint,
+          tokenAccount: tokenAccount,
+          vault: vaultAccount,
+          tokenProgram: TOKEN_PROGRAM,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InsufficientTokenBalance");
+    }
+  });
+
+  it("fail to create native red packet with invalid parameters", async () => {
+    // Re-derive the PDA
+    const createTime = new anchor.BN(Math.floor(Date.now() / 1000) - 100);
+    const redPacket = PublicKey.findProgramAddressSync(
+      [
+        redPacketCreator.publicKey.toBuffer(),
+        Buffer.from(createTime.toArray("le", 8)),
+      ],
+      redPacketProgram.programId
+    )[0];
+
+    const duration = new anchor.BN(200);
+    const totalNumber = 1;
+    const totalAmount = new anchor.BN(1 * LAMPORTS_PER_SOL);
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithNativeToken(
+          totalNumber,
+          totalAmount,
+          createTime,
+          duration.sub(new anchor.BN(110)),
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      console.log("catch error part");
+      expect(error.error.errorCode.code).to.equal("InvalidExpiryTime");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithNativeToken(
+          0,
+          totalAmount,
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidTotalNumber");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithNativeToken(
+          201,
+          totalAmount,
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidTotalNumber");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithNativeToken(
+          totalNumber,
+          new anchor.BN(0),
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InvalidTotalAmount");
+    }
+
+    try {
+      const tx = await redPacketProgram.methods
+        .createRedPacketWithNativeToken(
+          totalNumber,
+          new anchor.BN(1000 * LAMPORTS_PER_SOL),
+          createTime,
+          duration,
+          false,
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
+        )
+        .accounts({
+          signer: redPacketCreator.publicKey,
+          redPacket,
+          systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([redPacketCreator])
+        .rpc();
+      await provider.connection.confirmTransaction(tx);
+
+      assert.fail("Expected transaction to fail with InvalidSignature error");
+    } catch (error) {
+      // Verify we got the expected error
+      expect(error.error.errorCode.code).to.equal("InsufficientTokenBalance");
     }
   });
 });
