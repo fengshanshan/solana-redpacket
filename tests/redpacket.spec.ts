@@ -53,8 +53,9 @@ describe("redpacket", () => {
   let tokenAccount: PublicKey;
 
   const redPacketProgram = anchor.workspace.Redpacket as Program<Redpacket>;
+  //redPacketCreator = getKeypairFromEnvironment("CREATOR");
 
-  // Add beforeAll if you need any setup before all tests
+  //Add beforeAll if you need any setup before all tests
   before(async () => {
     const isLocalnet =
       provider.connection.rpcEndpoint.includes("localhost") ||
@@ -193,7 +194,9 @@ describe("redpacket", () => {
           splRedPacketCreateTime,
           redPacketDuration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "my first spl red packet",
+          "my first spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -297,7 +300,9 @@ describe("redpacket", () => {
         nativeRedPacketCreateTime,
         redPacketDuration,
         false, // if_split_random
-        claimer_issuer.publicKey
+        claimer_issuer.publicKey,
+        "my first native red packet",
+        "my first native red packet"
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -307,6 +312,7 @@ describe("redpacket", () => {
       .signers([redPacketCreator])
       .rpc();
     await provider.connection.confirmTransaction(tx);
+    await getLogs(tx);
     // Fetch and verify the created red packet account
 
     //Check red packet
@@ -605,7 +611,9 @@ describe("redpacket", () => {
         splRandomRedPacketCreateTime,
         redPacketDuration,
         true, // if_split_random
-        claimer_issuer.publicKey
+        claimer_issuer.publicKey,
+        "my first random amount spl red packet",
+        "my first random amount spl red packet"
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -781,7 +789,9 @@ describe("redpacket", () => {
         nativeRandomRedPacketCreateTime,
         redPacketDuration,
         true, // if_split_random
-        claimer_issuer.publicKey
+        claimer_issuer.publicKey,
+        "中文红包",
+        "中文红包测试"
       )
       .accounts({
         signer: redPacketCreator.publicKey,
@@ -1000,7 +1010,9 @@ describe("redpacket", () => {
           createTime,
           duration.sub(new anchor.BN(110)),
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1031,7 +1043,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1061,7 +1075,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1091,7 +1107,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1121,7 +1139,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create spl red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1167,7 +1187,9 @@ describe("redpacket", () => {
           createTime,
           duration.sub(new anchor.BN(110)),
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1193,7 +1215,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1218,7 +1242,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1243,7 +1269,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
@@ -1268,7 +1296,9 @@ describe("redpacket", () => {
           createTime,
           duration,
           false,
-          claimer_issuer.publicKey
+          claimer_issuer.publicKey,
+          "will fail create red packet",
+          "will fail create native red packet"
         )
         .accounts({
           signer: redPacketCreator.publicKey,
